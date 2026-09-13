@@ -1,0 +1,18 @@
+# Render.com Blueprint for 24/7 Cloud Hosting of StoreControl Pro
+services:
+  - type: web
+    name: storecontrol-pro
+    runtime: docker
+    plan: starter
+    region: frankfurt # Frankfurt for fast response in Germany
+    disk:
+      name: storecontrol-data
+      mountPath: /app/data
+      sizeGB: 1 # Plenty for years of business transactions
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: SESSION_SECRET
+        generateValue: true

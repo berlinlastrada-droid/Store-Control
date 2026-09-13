@@ -1,0 +1,32 @@
+{
+  "name": "storecontrol-pro",
+  "version": "2.0.0",
+  "description": "Zentraler geräteübergreifender Laden- & Umsatz-Manager mit Offline-Sync und Mobile UI",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node server/index.js",
+    "test": "node test/run-tests.js && node test/e2e-simulation.js && node test/user-acceptance-flow.js && node test/verify-save-reconcile-flow.js",
+    "test:unit": "node test/run-tests.js",
+    "test:e2e": "node test/e2e-simulation.js",
+    "test:flows": "node test/user-acceptance-flow.js",
+    "test:save-flow": "node test/verify-save-reconcile-flow.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.8.1",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "qrcode": "^1.5.4"
+  },
+  "keywords": [
+    "pos",
+    "retail",
+    "revenue-manager",
+    "sqlite",
+    "cross-device",
+    "offline-first"
+  ],
+  "author": "",
+  "license": "ISC"
+}

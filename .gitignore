@@ -1,0 +1,11 @@
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+Thumbs.db
+data/storecontrol.db-shm
+data/storecontrol.db-wal
+data/backups/
+data/tunnel.json
+*.log

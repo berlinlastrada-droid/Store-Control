@@ -1,0 +1,143 @@
+{
+  "version": "1.0",
+  "exportedAt": "2026-09-02T21:27:29.073Z",
+  "stores": [
+    {
+      "id": "store_1788358842956_bolf",
+      "name": "Lichtenberg",
+      "address": "",
+      "manager": "",
+      "phone": "",
+      "color": "teal",
+      "employeeCount": 3,
+      "targetRevenue": 0,
+      "createdAt": "2026-09-02T14:20:42.956Z"
+    },
+    {
+      "id": "store_1788358914508_zv8v",
+      "name": "Grünau",
+      "address": "",
+      "manager": "",
+      "phone": "",
+      "color": "purple",
+      "employeeCount": 2,
+      "targetRevenue": 0,
+      "createdAt": "2026-09-02T14:21:54.508Z"
+    },
+    {
+      "id": "store_1788358943648_q74l",
+      "name": "Königs Wusterhausen",
+      "address": "",
+      "manager": "",
+      "phone": "",
+      "color": "blue",
+      "employeeCount": 1,
+      "targetRevenue": 0,
+      "createdAt": "2026-09-02T14:22:23.648Z"
+    }
+  ],
+  "revenues": [
+    {
+      "id": "rev_1788359306593_tdv9",
+      "date": "2026-09-01",
+      "storeId": "store_1788358914508_zv8v",
+      "cash": 44.58,
+      "card": 299.98,
+      "total": 344.56,
+      "note": "",
+      "createdAt": "2026-09-02T14:28:26.593Z"
+    }
+  ],
+  "expenses": [
+    {
+      "id": "exp_1788358987875_l34i",
+      "storeId": "store_1788358842956_bolf",
+      "category": "staff",
+      "date": "2026-09-02",
+      "amount": 1330.15,
+      "title": "Lohn/Gehalt Pappel, Evelyn",
+      "recurrence": "monthly",
+      "createdAt": "2026-09-02T14:23:07.875Z"
+    },
+    {
+      "id": "exp_1788359002299_hjgr",
+      "storeId": "store_1788358842956_bolf",
+      "category": "staff",
+      "date": "2026-09-02",
+      "amount": 603,
+      "title": "Lohn/Gehalt Herold, Karola",
+      "recurrence": "monthly",
+      "createdAt": "2026-09-02T14:23:22.299Z"
+    },
+    {
+      "id": "exp_1788359013316_yeny",
+      "storeId": "store_1788358842956_bolf",
+      "category": "staff",
+      "date": "2026-09-02",
+      "amount": 603,
+      "title": "Lohn/Gehalt Müller, Kordula",
+      "recurrence": "monthly",
+      "createdAt": "2026-09-02T14:23:33.316Z"
+    },
+    {
+      "id": "exp_1788359030563_t838",
+      "storeId": "store_1788358914508_zv8v",
+      "category": "staff",
+      "date": "2026-09-02",
+      "amount": 603,
+      "title": "Lohn/Gehalt Wolter, Erwin",
+      "recurrence": "monthly",
+      "createdAt": "2026-09-02T14:23:50.563Z"
+    },
+    {
+      "id": "exp_1788359046828_3e6x",
+      "storeId": "store_1788358914508_zv8v",
+      "category": "staff",
+      "date": "2026-09-02",
+      "amount": 603,
+      "title": "Lohn/Gehalt Baltaci ,Esad",
+      "recurrence": "monthly",
+      "createdAt": "2026-09-02T14:24:06.828Z"
+    },
+    {
+      "id": "exp_1788359065545_o6s5",
+      "storeId": "store_1788358943648_q74l",
+      "category": "staff",
+      "date": "2026-09-02",
+      "amount": 603,
+      "title": "Lohn/Gehalt Holubek, Marion",
+      "recurrence": "monthly",
+      "createdAt": "2026-09-02T14:24:25.545Z"
+    },
+    {
+      "id": "exp_1788359100396_id8q",
+      "storeId": "store_1788358842956_bolf",
+      "category": "rent",
+      "date": "2026-09-02",
+      "amount": 3900,
+      "title": "Lichtenberg Miete",
+      "recurrence": "monthly",
+      "createdAt": "2026-09-02T14:25:00.396Z"
+    },
+    {
+      "id": "exp_1788359141126_4npx",
+      "storeId": "store_1788358914508_zv8v",
+      "category": "rent",
+      "date": "2026-09-02",
+      "amount": 2552.55,
+      "title": "Grünau Miete",
+      "recurrence": "monthly",
+      "createdAt": "2026-09-02T14:25:41.126Z"
+    },
+    {
+      "id": "exp_1788359174125_thgy",
+      "storeId": "store_1788358943648_q74l",
+      "category": "rent",
+      "date": "2026-09-02",
+      "amount": 1500,
+      "title": "Königs Wusterhausen Miete",
+      "recurrence": "monthly",
+      "createdAt": "2026-09-02T14:26:14.125Z"
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+﻿const fs = require('fs');
+const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#1e293b" />
+    </linearGradient>
+    <linearGradient id="emeraldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981" />
+      <stop offset="100%" stop-color="#059669" />
+    </linearGradient>
+    <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6" />
+      <stop offset="100%" stop-color="#1d4ed8" />
+    </linearGradient>
+  </defs>
+
+  <!-- Squircle Background -->
+  <rect width="512" height="512" rx="115" fill="url(#bgGrad)" />
+
+  <!-- Store Icon Body -->
+  <g transform="translate(48, 48)">
+    <!-- Triangular Store Roof -->
+    <path d="M 208 64 L 64 160 L 352 160 Z" fill="url(#emeraldGrad)" />
+    
+    <!-- Awning Striped Canopy -->
+    <rect x="56" y="160" width="304" height="28" rx="4" fill="#10b981" />
+    <path d="M 56 188 C 75 210, 95 210, 114 188 C 133 210, 153 210, 172 188 C 191 210, 211 210, 230 188 C 249 210, 269 210, 288 188 C 307 210, 327 210, 346 188 C 354 198, 357 194, 360 188 Z" fill="#059669" />
+
+    <!-- Three Building Pillars -->
+    <rect x="92" y="206" width="34" height="120" rx="6" fill="#f8fafc" />
+    <rect x="191" y="206" width="34" height="120" rx="6" fill="#f8fafc" />
+    <rect x="290" y="206" width="34" height="120" rx="6" fill="#f8fafc" />
+
+    <!-- Foundation Base -->
+    <rect x="56" y="326" width="304" height="26" rx="8" fill="url(#emeraldGrad)" />
+
+    <!-- Euro Coin Badge -->
+    <circle cx="312" cy="124" r="56" fill="url(#blueGrad)" stroke="#ffffff" stroke-width="6" />
+    <!-- Clean Euro Symbol Path -->
+    <path d="M 334 104 C 322 93 300 93 290 105 C 283 114 280 125 280 137 C 280 149 284 160 292 169 C 302 179 324 179 336 168" fill="none" stroke="#ffffff" stroke-width="9" stroke-linecap="round" />
+    <line x1="272" y1="120" x2="314" y2="120" stroke="#ffffff" stroke-width="8" stroke-linecap="round" />
+    <line x1="272" y1="138" x2="314" y2="138" stroke="#ffffff" stroke-width="8" stroke-linecap="round" />
+  </g>
+</svg>`;
+
+fs.writeFileSync('icons/icon.svg', svg, 'utf8');
+console.log('icons/icon.svg updated cleanly!');
