@@ -560,22 +560,25 @@ function updateStoreDropdowns() {
     const prodStoreSelect = document.getElementById('prodStoreId');
 
     const prevGlobalVal = globalSelect ? globalSelect.value : 'ALL';
+    const optStyle = 'style="background-color: #ffffff !important; color: #0f172a !important; font-weight: 600;"';
     
     if (globalSelect) {
-        globalSelect.innerHTML = '<option value="ALL">⭐ Alle Filialen (Gesamt)</option>';
+        globalSelect.innerHTML = '<option value="ALL" class="store-opt" ' + optStyle + '>⭐ Alle Filialen (Gesamt)</option>';
     }
     if (revStoreSelect) revStoreSelect.innerHTML = '';
     if (expStoreSelect) expStoreSelect.innerHTML = '';
     if (numpadStoreSelect) numpadStoreSelect.innerHTML = '';
-    if (prodStoreSelect) prodStoreSelect.innerHTML = '<option value="">Alle Filialen (Zentrallager)</option>';
+    if (prodStoreSelect) prodStoreSelect.innerHTML = '<option value="" class="store-opt" ' + optStyle + '>Alle Filialen (Zentrallager)</option>';
 
     STATE.stores.forEach(store => {
-        const opt = `<option value="${store.id}">${escapeHtml(store.name)}</option>`;
-        if (globalSelect) globalSelect.insertAdjacentHTML('beforeend', opt);
-        if (revStoreSelect) revStoreSelect.insertAdjacentHTML('beforeend', opt);
-        if (expStoreSelect) expStoreSelect.insertAdjacentHTML('beforeend', opt);
-        if (numpadStoreSelect) numpadStoreSelect.insertAdjacentHTML('beforeend', opt);
-        if (prodStoreSelect) prodStoreSelect.insertAdjacentHTML('beforeend', opt);
+        const globalOpt = `<option value="${store.id}" class="store-opt" ${optStyle}>● ${escapeHtml(store.name)}</option>`;
+        const modalOpt = `<option value="${store.id}" class="store-opt" ${optStyle}>${escapeHtml(store.name)}</option>`;
+        
+        if (globalSelect) globalSelect.insertAdjacentHTML('beforeend', globalOpt);
+        if (revStoreSelect) revStoreSelect.insertAdjacentHTML('beforeend', modalOpt);
+        if (expStoreSelect) expStoreSelect.insertAdjacentHTML('beforeend', modalOpt);
+        if (numpadStoreSelect) numpadStoreSelect.insertAdjacentHTML('beforeend', modalOpt);
+        if (prodStoreSelect) prodStoreSelect.insertAdjacentHTML('beforeend', modalOpt);
     });
 
     if (globalSelect) {

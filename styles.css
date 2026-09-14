@@ -375,9 +375,63 @@ html.dark {
     outline: none !important;
 }
 
-.dark select option {
-    background-color: #0f172a !important;
-    color: #f8fafc !important;
+/* ==========================================================================
+   DROPDOWN & OPTIONEN – EINDEUTIGE REGELN FÜR PERFEKTE LESBARKEIT
+   ========================================================================== */
+
+/* Dropdown im Header (im geschlossenen Zustand im dunklen Header-Balken) */
+#globalStoreSelect,
+.store-dropdown,
+select.store-dropdown {
+    color: #ffffff !important;
+    font-weight: 600 !important;
+    cursor: pointer;
+}
+
+/* Alle Optionen im Dropdown (geöffneter Zustand) – IMMER dunkle Schrift auf hellem Grund */
+#globalStoreSelect option,
+.store-dropdown option,
+select.store-dropdown option,
+select option,
+.store-opt,
+option.store-opt,
+.dark select option,
+.dark #globalStoreSelect option,
+html.dark select option,
+html.dark #globalStoreSelect option {
+    background-color: #ffffff !important;
+    color: #0f172a !important; /* Dunkelblau / fast schwarz */
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    padding: 8px 12px !important;
+}
+
+/* Aktive / ausgewählte Filiale im Dropdown */
+#globalStoreSelect option:checked,
+select.store-dropdown option:checked,
+select option:checked,
+.store-opt:checked,
+option.store-opt:checked,
+.dark select option:checked,
+.dark #globalStoreSelect option:checked,
+html.dark select option:checked,
+html.dark #globalStoreSelect option:checked {
+    background-color: #e2e8f0 !important; /* Sanfter Hellgrau-Kontrasthintergrund */
+    color: #1e3a8a !important; /* Tiefes Dunkelblau */
+    font-weight: 800 !important;
+}
+
+/* Hover- und Fokus-Zustand beim Navigieren über die Filialen */
+#globalStoreSelect option:hover,
+#globalStoreSelect option:focus,
+select.store-dropdown option:hover,
+select.store-dropdown option:focus,
+select option:hover,
+select option:focus,
+.store-opt:hover,
+.store-opt:focus {
+    background-color: #dbeafe !important; /* Zartes Hellblau */
+    color: #1e3a8a !important; /* Kräftiges Dunkelblau */
 }
 
 .dark input::placeholder,
