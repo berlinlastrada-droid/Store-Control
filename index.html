@@ -1,6 +1,17 @@
 <!DOCTYPE html>
-<html lang="de" class="h-full bg-slate-50">
+<html lang="de" class="h-full bg-slate-950 dark">
 <head>
+    <script>
+        // Instant Dark Mode initialization to avoid any white flash
+        try {
+            const savedTheme = localStorage.getItem('storecontrol_theme') || 'dark';
+            if (savedTheme === 'dark') {
+                document.documentElement.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+            }
+        } catch (e) {}
+    </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Store Control – Zentraler Umsatz- & Kostenmanager</title>
@@ -8,6 +19,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
+            darkMode: 'class',
             theme: {
                 extend: {
                     colors: {
@@ -42,7 +54,7 @@
     <link rel="icon" type="image/svg+xml" href="/icons/icon.svg">
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">
     <link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192.png">
-    <meta name="theme-color" content="#0f172a">
+    <meta name="theme-color" content="#090d16">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -51,7 +63,7 @@
     <!-- HTML5 Barcode & QR-Code Scanner Library (Cross-Platform / 1D & 2D) -->
     <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 </head>
-<body class="h-full flex flex-col font-sans text-slate-800 antialiased selection:bg-brand-500 selection:text-white pb-16 md:pb-0">
+<body class="h-full flex flex-col font-sans text-slate-100 antialiased selection:bg-brand-500 selection:text-white pb-16 md:pb-0 bg-slate-950">
 
     <!-- Top Navigation Header -->
     <header class="bg-slate-900 text-white shadow-lg sticky top-0 z-40">
@@ -91,6 +103,13 @@
                     <button onclick="openModal('qrModal')" title="Smartphone per QR-Code verbinden" class="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-slate-700 transition">
                         <i data-lucide="smartphone" class="w-4 h-4 text-emerald-400"></i>
                         <span class="hidden md:inline">Smartphone</span>
+                    </button>
+
+                    <!-- Dark Mode Toggle Button -->
+                    <button id="themeToggleBtn" onclick="toggleDarkMode()" title="Dunkelmodus / Hellmodus umschalten" class="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-slate-700 transition cursor-pointer">
+                        <i data-lucide="moon" id="themeIconMoon" class="w-4 h-4 text-sky-400"></i>
+                        <i data-lucide="sun" id="themeIconSun" class="w-4 h-4 text-amber-400 hidden"></i>
+                        <span id="themeToggleText" class="hidden xl:inline">Dark</span>
                     </button>
 
                     <!-- User Account / Role Menu -->

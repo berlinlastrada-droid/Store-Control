@@ -168,3 +168,320 @@ body {
         display: none !important;
     }
 }
+
+
+/* ==========================================================================
+   StoreControl Pro 2.0 - Complete Obsidian Dark Mode Design System
+   ========================================================================== */
+
+html.dark {
+    color-scheme: dark;
+    background-color: #090d16 !important;
+}
+
+.dark body {
+    background-color: #090d16 !important;
+    color: #e2e8f0 !important;
+}
+
+/* Backgrounds & Card Surfaces */
+.dark .bg-white {
+    background-color: #0f172a !important;
+}
+
+.dark .bg-slate-50,
+.dark .bg-slate-50\/50,
+.dark .bg-slate-50\/80 {
+    background-color: #131c31 !important;
+}
+
+.dark .bg-slate-100 {
+    background-color: #1e293b !important;
+}
+
+.dark .bg-slate-200 {
+    background-color: #243452 !important;
+}
+
+.dark .bg-slate-900 {
+    background-color: #080c14 !important;
+}
+
+.dark .bg-slate-950 {
+    background-color: #05080f !important;
+}
+
+/* Sticky Navigation Tab Bar Container */
+.dark .sticky.top-16 {
+    background-color: #0c1222 !important;
+    border-color: #1e293b !important;
+}
+
+/* Accent & Category Backgrounds */
+.dark .bg-emerald-50 {
+    background-color: rgba(16, 185, 129, 0.12) !important;
+}
+
+.dark .bg-emerald-100 {
+    background-color: rgba(16, 185, 129, 0.22) !important;
+}
+
+.dark .bg-rose-50,
+.dark .bg-rose-50\/60 {
+    background-color: rgba(244, 63, 94, 0.12) !important;
+}
+
+.dark .bg-rose-100 {
+    background-color: rgba(244, 63, 94, 0.22) !important;
+}
+
+.dark .bg-amber-50,
+.dark .bg-amber-50\/60 {
+    background-color: rgba(245, 158, 11, 0.12) !important;
+}
+
+.dark .bg-amber-100 {
+    background-color: rgba(245, 158, 11, 0.22) !important;
+}
+
+.dark .bg-amber-500\/15 {
+    background-color: rgba(245, 158, 11, 0.15) !important;
+}
+
+.dark .bg-brand-50,
+.dark .bg-blue-50\/60 {
+    background-color: rgba(59, 130, 246, 0.12) !important;
+}
+
+.dark .bg-purple-50,
+.dark .bg-purple-50\/60 {
+    background-color: rgba(168, 85, 247, 0.12) !important;
+}
+
+.dark .bg-teal-50,
+.dark .bg-teal-50\/40 {
+    background-color: rgba(20, 184, 166, 0.12) !important;
+}
+
+/* Borders & Dividers */
+.dark .border-slate-100,
+.dark .border-slate-200,
+.dark .border-slate-200\/80,
+.dark .border-slate-300 {
+    border-color: #1e293b !important;
+}
+
+.dark .border-emerald-200,
+.dark .border-emerald-200\/60,
+.dark .border-emerald-200\/80 {
+    border-color: rgba(16, 185, 129, 0.3) !important;
+}
+
+.dark .border-rose-200,
+.dark .border-rose-200\/70 {
+    border-color: rgba(244, 63, 94, 0.3) !important;
+}
+
+.dark .border-amber-200,
+.dark .border-amber-200\/70,
+.dark .border-amber-200\/80 {
+    border-color: rgba(245, 158, 11, 0.3) !important;
+}
+
+.dark .border-brand-200,
+.dark .border-blue-200\/70 {
+    border-color: rgba(59, 130, 246, 0.3) !important;
+}
+
+.dark .border-purple-200\/70 {
+    border-color: rgba(168, 85, 247, 0.3) !important;
+}
+
+.dark .border-teal-200,
+.dark .border-teal-400\/60 {
+    border-color: rgba(20, 184, 166, 0.3) !important;
+}
+
+.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+    border-color: #1e293b !important;
+}
+
+/* Typography & Text Highlighting */
+.dark .text-slate-950,
+.dark .text-slate-900,
+.dark .text-slate-800 {
+    color: #f8fafc !important;
+}
+
+.dark .text-slate-700,
+.dark .text-slate-600 {
+    color: #cbd5e1 !important;
+}
+
+.dark .text-slate-500 {
+    color: #94a3b8 !important;
+}
+
+.dark .text-slate-400 {
+    color: #64748b !important;
+}
+
+.dark .text-emerald-800,
+.dark .text-emerald-900 {
+    color: #34d399 !important;
+}
+
+.dark .text-rose-800,
+.dark .text-rose-950 {
+    color: #fb7185 !important;
+}
+
+.dark .text-amber-800,
+.dark .text-amber-900,
+.dark .text-amber-950 {
+    color: #fbbf24 !important;
+}
+
+.dark .text-brand-700,
+.dark .text-blue-800,
+.dark .text-blue-950 {
+    color: #60a5fa !important;
+}
+
+.dark .text-purple-800,
+.dark .text-purple-950 {
+    color: #c084fc !important;
+}
+
+.dark .text-teal-700 {
+    color: #2dd4bf !important;
+}
+
+/* Form Controls, Inputs & Selects */
+.dark input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]),
+.dark select,
+.dark textarea {
+    background-color: #141e33 !important;
+    color: #f8fafc !important;
+    border-color: #243452 !important;
+}
+
+.dark input:not([type="checkbox"]):not([type="radio"]):focus,
+.dark select:focus,
+.dark textarea:focus {
+    border-color: #10b981 !important;
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.25) !important;
+    outline: none !important;
+}
+
+.dark select option {
+    background-color: #0f172a !important;
+    color: #f8fafc !important;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+    color: #64748b !important;
+}
+
+/* Tables & Hover States */
+.dark table thead th {
+    background-color: #0c1220 !important;
+    color: #94a3b8 !important;
+    border-bottom: 1px solid #1e293b !important;
+}
+
+.dark table tbody tr {
+    border-bottom: 1px solid #1e293b !important;
+}
+
+.dark table tbody tr:hover,
+.dark .hover\:bg-slate-50:hover,
+.dark .hover\:bg-slate-50\/50:hover,
+.dark .hover\:bg-slate-50\/80:hover {
+    background-color: rgba(30, 41, 59, 0.55) !important;
+}
+
+/* Navigation Tabs */
+.dark .nav-tab {
+    color: #94a3b8 !important;
+}
+
+.dark .nav-tab:hover {
+    color: #f8fafc !important;
+    background-color: #1e293b !important;
+}
+
+.dark .nav-tab.active-tab {
+    background-color: #1e293b !important;
+    color: #38bdf8 !important;
+    box-shadow: inset 0 -2px 0 0 #38bdf8 !important;
+}
+
+/* Mobile Bottom Bar */
+.dark .mobile-bottom-nav {
+    background-color: #0b0f19 !important;
+    border-top-color: #1e293b !important;
+}
+
+.dark .mobile-bottom-nav .nav-btn {
+    color: #64748b !important;
+}
+
+.dark .mobile-bottom-nav .nav-btn.active {
+    color: #10b981 !important;
+}
+
+/* Modals & Dialog Windows */
+.dark .fixed.inset-0.z-50 {
+    background-color: rgba(3, 7, 18, 0.82) !important;
+}
+
+.dark .fixed.inset-0.z-50 > div.bg-white,
+.dark .fixed.inset-0.z-50 div.bg-white:not(#qrCodeContainer) {
+    background-color: #0f172a !important;
+    border-color: #1e293b !important;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.85) !important;
+}
+
+/* CRITICAL: QR Code Container must stay crisp white so mobile phone cameras can scan high-contrast black QR modules */
+.dark #qrCodeContainer {
+    background-color: #ffffff !important;
+    border-color: #cbd5e1 !important;
+}
+
+/* Touch Numpad */
+.dark .numpad-btn {
+    background-color: #141e33 !important;
+    color: #f8fafc !important;
+    border: 1px solid #243452 !important;
+}
+
+.dark .numpad-btn:active {
+    background-color: #1e293b !important;
+    transform: scale(0.94);
+}
+
+/* Subtle Shadows */
+.dark .shadow-sm,
+.dark .shadow-md,
+.dark .shadow-lg,
+.dark .shadow-xl,
+.dark .shadow-2xl {
+    box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.55) !important;
+}
+
+/* Scrollbars */
+.dark ::-webkit-scrollbar-track {
+    background: #090d16;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+    background: #243452;
+    border-radius: 9999px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+    background: #334155;
+}

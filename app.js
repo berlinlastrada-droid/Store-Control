@@ -69,6 +69,7 @@ const CATEGORY_NAMES = {
 // =============================================================================
 
 document.addEventListener('DOMContentLoaded', async () => {
+    initTheme();
     initDefaultDates();
     initEventListeners();
     initSyncObservers();
@@ -795,6 +796,7 @@ function renderTrendChart() {
     const canvas = document.getElementById('monthlyTrendChart');
     if (!canvas || typeof Chart === 'undefined') return;
 
+    const isDark = document.documentElement.classList.contains('dark');
     const [year, month] = STATE.currentMonth.split('-').map(Number);
     const daysInMonth = new Date(year, month, 0).getDate();
 
@@ -831,7 +833,7 @@ function renderTrendChart() {
                     label: 'Tagesumsatz (€)',
                     data: revenueData,
                     borderColor: '#10b981',
-                    backgroundColor: 'rgba(16, 185, 129, 0.08)',
+                    backgroundColor: isDark ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.08)',
                     borderWidth: 2.5,
                     fill: true,
                     tension: 0.25,
@@ -854,20 +856,89 @@ function renderTrendChart() {
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
-                legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11, family: 'Plus Jakarta Sans' } } }
+                legend: {
+                    position: 'top',
+                    labels: {
+                        boxWidth: 12,
+                        color: isDark ? '#cbd5e1' : '#334155',
+                        font: { size: 11, family: 'Plus Jakarta Sans' }
+                    }
+                }
             },
             scales: {
                 y: {
                     beginAtZero: true,
                     ticks: {
+                        color: isDark ? '#94a3b8' : '#64748b',
                         callback: val => val.toLocaleString('de-DE') + ' €',
                         font: { size: 10 }
                     },
-                    grid: { color: '#f1f5f9' }
+                    grid: { color: isDark ? 'rgba(255, 255, 255, 0.08)' : '#f1f5f9' }
                 },
                 x: {
-                    ticks: { font: { size: 9 }, maxTicksLimit: 16 },
+                    ticks: {
+                        color: isDark ? '#94a3b8' : '#64748b',
+                        font: { size: 9 },
+                        maxTicksLimit: 16
+                    },
                     grid: { display: false }
+                }
+            }
+        }
+    });
+}
+
+function renderCostDonutChart() {
+    const canvas = document.getElementById('costBreakdownChart');
+    if (!canvas || typeof Chart === 'undefined') return;
+
+    const isDark = document.documentElement.classList.contains('dark');
+    const { expenses } = getFilteredData();
+    const totals = calculateTotals([], expenses);
+
+    const legStaff = document.getElementById('legendStaff');
+    const legRent = document.getElementById('legendRent');
+    const legGoods = document.getElementById('legendGoods');
+    const legOther = document.getElementById('legendOther');
+
+    if (legStaff) legStaff.textContent = formatCurrency(totals.totalStaff);
+    if (legRent) legRent.textContent = formatCurrency(totals.totalRent);
+    if (legGoods) legGoods.textContent = formatCurrency(totals.totalGoods);
+    if (legOther) legOther.textContent = formatCurrency(totals.totalOther);
+
+    if (STATE.charts.costBreakdown) {
+        STATE.charts.costBreakdown.destroy();
+    }
+
+    const ctx = canvas.getContext('2d');
+    const hasCosts = totals.totalExpenses > 0;
+
+    STATE.charts.costBreakdown = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Mitarbeiter', 'Miete & Nebenkosten', 'Wareneinsatz', 'Sonstige'],
+            datasets: [{
+                data: hasCosts 
+                    ? [totals.totalStaff, totals.totalRent, totals.totalGoods, totals.totalOther] 
+                    : [1, 0, 0, 0],
+                backgroundColor: hasCosts 
+                    ? ['#3b82f6', '#f59e0b', '#ef4444', '#a855f7'] 
+                    : [isDark ? '#1e293b' : '#e2e8f0'],
+                borderWidth: 2,
+                borderColor: isDark ? '#0f172a' : '#ffffff'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '72%',
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    enabled: hasCosts,
+                    callbacks: {
+                        label: ctx => ` ${ctx.label}: ${formatCurrency(ctx.raw)}`
+                    }
                 }
             }
         }
@@ -3497,3 +3568,72 @@ async function executeAndroidPwaPrompt() {
         openModal('pwaInstallModal');
     }
 }
+
+
+// =============================================================================
+// DARK MODE & THEME MANAGEMENT
+// =============================================================================
+
+function initTheme() {
+    const savedTheme = localStorage.getItem('storecontrol_theme') || 'dark';
+    applyTheme(savedTheme, false);
+}
+
+function applyTheme(theme, reRenderCharts = true) {
+    const html = document.documentElement;
+    const isDark = theme === 'dark';
+
+    if (isDark) {
+        html.classList.add('dark');
+        const metaTheme = document.querySelector('meta[name="theme-color"]');
+        if (metaTheme) metaTheme.setAttribute('content', '#090d16');
+    } else {
+        html.classList.remove('dark');
+        const metaTheme = document.querySelector('meta[name="theme-color"]');
+        if (metaTheme) metaTheme.setAttribute('content', '#0f172a');
+    }
+
+    try {
+        localStorage.setItem('storecontrol_theme', theme);
+    } catch (e) {}
+
+    const iconSun = document.getElementById('themeIconSun');
+    const iconMoon = document.getElementById('themeIconMoon');
+    const textSpan = document.getElementById('themeToggleText');
+
+    if (iconSun && iconMoon) {
+        if (isDark) {
+            iconSun.classList.add('hidden');
+            iconMoon.classList.remove('hidden');
+            if (textSpan) textSpan.textContent = 'Dark';
+        } else {
+            iconSun.classList.remove('hidden');
+            iconMoon.classList.add('hidden');
+            if (textSpan) textSpan.textContent = 'Light';
+        }
+    }
+
+    if (typeof Chart !== 'undefined') {
+        Chart.defaults.color = isDark ? '#94a3b8' : '#64748b';
+        Chart.defaults.borderColor = isDark ? 'rgba(255, 255, 255, 0.08)' : '#f1f5f9';
+    }
+
+    if (reRenderCharts) {
+        if (typeof renderTrendChart === 'function') renderTrendChart();
+        if (typeof renderCostDonutChart === 'function') renderCostDonutChart();
+    }
+    
+    if (window.lucide) {
+        try { lucide.createIcons(); } catch(e) {}
+    }
+}
+
+function toggleDarkMode() {
+    const currentTheme = localStorage.getItem('storecontrol_theme') || 'dark';
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    applyTheme(newTheme, true);
+    if (typeof showToast === 'function') {
+        showToast(newTheme === 'dark' ? '🌙 Dunkelmodus aktiviert' : '☀️ Hellmodus aktiviert', 'info');
+    }
+}
+window.toggleDarkMode = toggleDarkMode;
