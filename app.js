@@ -410,23 +410,97 @@ async function loadDataFromServer(showErrors = false) {
         const serverExps = (expensesData || []).map(e => ({ ...e, _pendingSync: false }));
         const serverProds = (productsData || []).map(p => ({ ...p, _pendingSync: false }));
 
-        // Only preserve items that are genuinely still queued in syncQueue
-        const queueIds = new Set((window.syncManager?.syncQueue || []).map(q => q.tempId || q.data?.id).filter(Boolean));
+        // Canonical Server ID sets
+        const serverRevIds = new Set(serverRevs.map(r => r.id));
+        const serverExpIds = new Set(serverExps.map(e => e.id));
+        const serverProdIds = new Set(serverProds.map(p => p.id));
+        const serverStoreIds = new Set(serverStores.map(s => s.id));
 
-        const pendingStores = (STATE.stores || []).filter(s => s._pendingSync && queueIds.has(s.id));
-        const pendingRevs = (STATE.revenues || []).filter(r => r._pendingSync && queueIds.has(r.id));
-        const pendingExps = (STATE.expenses || []).filter(e => e._pendingSync && queueIds.has(e.id));
-        const pendingProds = (STATE.products || []).filter(p => p._pendingSync && queueIds.has(p.id));
+        // NON-DESTRUCTIVE SELF-HEALING MERGE:
+        // Local business records must NEVER be discarded when missing on the server.
+        // Instead, they are preserved and automatically re-committed to the central database.
+        const missingRevsToReconcile = [];
+        const mergedRevenues = [...serverRevs];
+        for (const localRev of (STATE.revenues || [])) {
+            if (!localRev || !localRev.id || localRev._deletedLocally) continue;
+            if (!serverRevIds.has(localRev.id)) {
+                const isQueriedMonth = !STATE.currentMonth || (localRev.date && localRev.date.startsWith(STATE.currentMonth));
+                if (isQueriedMonth) {
+                    console.warn('⚠️ Lokaler Umsatz auf Server nicht vorhanden. Sichere Datensatz & starte Selbstheilung:', localRev.id, localRev.date, localRev.total);
+                    localRev._pendingSync = true;
+                    missingRevsToReconcile.push({
+                        type: 'CREATE_REVENUE',
+                        tempId: localRev.id,
+                        data: localRev
+                    });
+                }
+                mergedRevenues.push(localRev);
+            }
+        }
 
-        STATE.stores = [...serverStores, ...pendingStores];
-        STATE.revenues = [...pendingRevs, ...serverRevs];
+        const missingExpsToReconcile = [];
+        const mergedExpenses = [...serverExps];
+        for (const localExp of (STATE.expenses || [])) {
+            if (!localExp || !localExp.id || localExp._deletedLocally) continue;
+            if (!serverExpIds.has(localExp.id)) {
+                const isQueriedMonth = !STATE.currentMonth || (localExp.date && localExp.date.startsWith(STATE.currentMonth));
+                if (isQueriedMonth) {
+                    localExp._pendingSync = true;
+                    missingExpsToReconcile.push({
+                        type: 'CREATE_EXPENSE',
+                        tempId: localExp.id,
+                        data: localExp
+                    });
+                }
+                mergedExpenses.push(localExp);
+            }
+        }
+
+        const mergedProducts = [...serverProds];
+        for (const p of (STATE.products || [])) {
+            if (p && p.id && !p._deletedLocally && !serverProdIds.has(p.id)) {
+                mergedProducts.push(p);
+            }
+        }
+
+        const mergedStores = [...serverStores];
+        for (const s of (STATE.stores || [])) {
+            if (s && s.id && !s._deletedLocally && !serverStoreIds.has(s.id)) {
+                mergedStores.push(s);
+            }
+        }
+
+        STATE.stores = mergedStores;
+        STATE.revenues = mergedRevenues;
         STATE.revenues.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-        STATE.expenses = [...pendingExps, ...serverExps];
+        STATE.expenses = mergedExpenses;
         STATE.expenses.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-        STATE.products = [...serverProds, ...pendingProds];
+        STATE.products = mergedProducts;
 
         saveStateToLocalStorageCache();
         updateUI();
+
+        // Automatic Background Reconciliation (Self-Healing)
+        const itemsToHeal = [...missingRevsToReconcile, ...missingExpsToReconcile];
+        if (itemsToHeal.length > 0 && window.syncManager && syncManager.isLoggedIn()) {
+            console.log('🚑 Sende ' + itemsToHeal.length + ' lokale Datensätze an zentrale Datenbank zur Selbstheilung...');
+            syncManager.apiRequest('/api/sync/reconcile', {
+                method: 'POST',
+                body: JSON.stringify({ items: itemsToHeal })
+            }).then(res => {
+                if (res && res.reconciled && res.reconciled.length > 0) {
+                    console.log('✓ Selbstheilung erfolgreich abgeschlossen: ' + res.reconciled.length + ' Datensätze zentral persistiert.');
+                    for (const r of res.reconciled) {
+                        const rec = STATE.revenues.find(item => item.id === r.originalId || item.id === r.serverId);
+                        if (rec) rec._pendingSync = false;
+                    }
+                    saveStateToLocalStorageCache();
+                    updateUI();
+                }
+            }).catch(e => {
+                console.warn('Selbstheilungs-Retry aufgeschoben:', e.message);
+            });
+        }
     } catch (err) {
         if (showErrors && err.message !== 'Sitzung abgelaufen') {
             console.warn('Server offline, arbeite mit lokalem Stand:', err.message);

@@ -10,10 +10,21 @@ if (!fs.existsSync(dataDir)) {
 }
 
 const dbPath = path.join(dataDir, 'storecontrol.db');
-const initialDb = path.join(dataDir, 'initial_storecontrol.db');
-if (!fs.existsSync(dbPath) && fs.existsSync(initialDb)) {
-    console.log('[DB] Neues Volume: Initialisiere Datenbank mit echten Geschaeftsdaten...');
-    fs.copyFileSync(initialDb, dbPath);
+const seedDir = path.join(__dirname, 'seed');
+const seedDb = path.join(seedDir, 'initial_storecontrol.db');
+const fallbackInitialDb = path.join(dataDir, 'initial_storecontrol.db');
+
+// SAFEGUARD: Only initialize on FIRST run if dbPath does NOT exist or is 0 bytes.
+// NEVER overwrite an existing database under ANY circumstances.
+const dbNeedsInit = !fs.existsSync(dbPath) || (fs.existsSync(dbPath) && fs.statSync(dbPath).size === 0);
+if (dbNeedsInit) {
+    if (fs.existsSync(seedDb) && fs.statSync(seedDb).size > 0) {
+        console.log('[DB] Neues/leeres Volume: Initialisiere Datenbank mit echten Geschaeftsdaten aus Seed...');
+        fs.copyFileSync(seedDb, dbPath);
+    } else if (fs.existsSync(fallbackInitialDb) && fs.statSync(fallbackInitialDb).size > 0) {
+        console.log('[DB] Neues/leeres Volume: Initialisiere Datenbank mit echten Geschaeftsdaten aus Vorlage...');
+        fs.copyFileSync(fallbackInitialDb, dbPath);
+    }
 }
 const db = new Database(dbPath);
 
@@ -245,6 +256,9 @@ function logAudit(entityType, entityId, action, changedBy, oldData, newData, ipA
     } catch (err) {
         console.error('Failed to log audit event:', err);
     }
+    if (['CREATE', 'UPDATE', 'DELETE', 'RECONCILE_INSERT'].includes(action)) {
+        triggerSnapshotBackup();
+    }
 }
 
 function getAppSetting(key) {
@@ -335,10 +349,34 @@ function ensureInstallationId() {
 ensureInstallationId();
 
 
+
+let backupDebounceTimer = null;
+function triggerSnapshotBackup() {
+    if (backupDebounceTimer) return;
+    backupDebounceTimer = setTimeout(() => {
+        backupDebounceTimer = null;
+        createAutoBackup();
+    }, 5000);
+}
+
+function createAutoBackup() {
+    try {
+        const backupsDir = path.join(dataDir, 'backups');
+        if (!fs.existsSync(backupsDir)) fs.mkdirSync(backupsDir, { recursive: true });
+        try { db.pragma('wal_checkpoint(PASSIVE)'); } catch(e) {}
+        const timestamp = new Date().toISOString().slice(0, 10);
+        const dailyBackup = path.join(backupsDir, 'storecontrol_daily_' + timestamp + '.db');
+        fs.copyFileSync(dbPath, dailyBackup);
+    } catch(e) {
+        console.warn('[DB AutoBackup] Hinweis:', e.message);
+    }
+}
+
 module.exports = {
     db,
     logAudit,
     getAppSetting,
-    setAppSetting
+    setAppSetting,
+    createAutoBackup
 };
 

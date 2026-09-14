@@ -186,6 +186,8 @@ class DataService {
     }
 
     async deleteRevenue(id) {
+        const rev = STATE.revenues.find(r => r.id === id);
+        if (rev) rev._deletedLocally = true;
         try {
             await syncManager.apiRequest(`/api/revenues/${id}`, { method: 'DELETE' });
             STATE.revenues = STATE.revenues.filter(r => r.id !== id);
@@ -202,6 +204,7 @@ class DataService {
                 showToast('⏳ Offline: Löschung vorgemerkt, wird synchronisiert...', 'info');
                 return { success: true, offline: true };
             }
+            if (rev) delete rev._deletedLocally;
             showToast('⚠ Löschen fehlgeschlagen: ' + err.message, 'error');
             throw err;
         }
@@ -324,6 +327,8 @@ class DataService {
     }
 
     async deleteExpense(id) {
+        const exp = STATE.expenses.find(e => e.id === id);
+        if (exp) exp._deletedLocally = true;
         try {
             await syncManager.apiRequest(`/api/expenses/${id}`, { method: 'DELETE' });
             STATE.expenses = STATE.expenses.filter(e => e.id !== id);
