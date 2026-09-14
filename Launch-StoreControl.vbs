@@ -7,7 +7,7 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 WshShell.CurrentDirectory = "C:\Users\esadb\Desktop\La Strada\laden-umsatz-manager"
 
 serverUrl = "http://127.0.0.1:3000/api/network-info"
-appUrl = "http://localhost:3000"
+appUrl = "https://store-control-7jzt.onrender.com"
 edgePath = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 
 Function IsServerRunning()
