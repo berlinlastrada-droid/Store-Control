@@ -2285,91 +2285,121 @@ function createNewProductFromScannedCode() {
 // CSV IMPORT ASSISTENT (VORSCHAU, SPALTENZUORDNUNG, DUPLIKATE & FORMELSCHUTZ)
 // =============================================================================
 
-function handleCsvFileSelected(event) {
+async function handleCsvFileSelected(event) {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        const text = e.target.result;
-        STATE.csvImportState.rawText = text;
-        initCsvStep1(text, file.name);
-    };
-    reader.onerror = function() {
-        showToast('Fehler beim Lesen der CSV-Datei.', 'error');
-    };
-    reader.readAsText(file, 'UTF-8');
-}
+    try {
+        STATE.csvImportState = STATE.csvImportState || {};
+        STATE.csvImportState.fileName = file.name;
+        STATE.csvImportState.fileSize = file.size;
 
-function detectCsvDelimiter(text) {
-    const firstLines = text.split(/\r?\n/).slice(0, 5).join('\n');
-    const semicolons = (firstLines.match(/;/g) || []).length;
-    const commas = (firstLines.match(/,/g) || []).length;
-    const tabs = (firstLines.match(/\t/g) || []).length;
-    if (semicolons >= commas && semicolons >= tabs) return ';';
-    if (tabs > commas) return '\t';
-    return ',';
-}
+        // Check if SheetJS (XLSX) is available
+        if (typeof window.XLSX === 'undefined') {
+            throw new Error('SheetJS-Bibliothek (xlsx.full.min.js) ist nicht geladen.');
+        }
 
-function parseCsvText(text, delimiter = ';') {
-    const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
-    if (lines.length === 0) return { headers: [], rows: [] };
+        const arrayBuffer = await file.arrayBuffer();
 
-    // Standard compliant CSV line parser supporting quoted values
-    function parseCsvLine(line, delim) {
-        const result = [];
-        let cur = '';
-        let inQuotes = false;
-        for (let i = 0; i < line.length; i++) {
-            const char = line[i];
-            const nextChar = line[i + 1];
-            if (char === '"') {
-                if (inQuotes && nextChar === '"') {
-                    cur += '"';
-                    i++;
-                } else {
-                    inQuotes = !inQuotes;
-                }
-            } else if (char === delim && !inQuotes) {
-                result.push(cur.trim());
-                cur = '';
+        // Workbook mit SheetJS einlesen (unterstützt XLSX, XLS, CSV mit UTF-8)
+        const wb = window.XLSX.read(arrayBuffer, { type: 'array', cellDates: true, codepage: 65001 });
+        STATE.csvImportState.workbook = wb;
+        STATE.csvImportState.sheetNames = wb.SheetNames || [];
+
+        if (STATE.csvImportState.sheetNames.length === 0) {
+            throw new Error('Die ausgewählte Datei enthält keine lesbaren Tabellenblätter.');
+        }
+
+        // Tabellenblatt-Auswahl einrichten
+        const sheetContainer = document.getElementById('csvSheetSelectorContainer');
+        const sheetSelect = document.getElementById('csvSheetSelect');
+        if (sheetSelect && sheetContainer) {
+            sheetSelect.innerHTML = STATE.csvImportState.sheetNames.map((name, idx) => 
+                `<option value="${idx}">Tabellenblatt: ${escapeHtml(name)}</option>`
+            ).join('');
+
+            if (STATE.csvImportState.sheetNames.length > 1) {
+                sheetContainer.classList.remove('hidden');
             } else {
-                cur += char;
+                sheetContainer.classList.add('hidden');
             }
         }
-        result.push(cur.trim());
-        return result;
-    }
 
-    const headers = parseCsvLine(lines[0], delimiter);
-    const rows = lines.slice(1).map(l => parseCsvLine(l, delimiter));
-    return { headers, rows };
+        // Erstes Tabellenblatt laden
+        loadSheetIntoImportState(0);
+    } catch (err) {
+        console.error('Fehler beim Öffnen der Excel-/CSV-Datei:', err);
+        showToast('Fehler beim Öffnen der Datei: ' + err.message, 'error');
+    }
 }
 
-function initCsvStep1(text, filename) {
-    const delimiter = detectCsvDelimiter(text);
-    STATE.csvImportState.delimiter = delimiter;
-    const parsed = parseCsvText(text, delimiter);
-    STATE.csvImportState.headers = parsed.headers;
-    STATE.csvImportState.rows = parsed.rows;
+function handleCsvSheetChanged(sheetIndex) {
+    loadSheetIntoImportState(parseInt(sheetIndex, 10) || 0);
+}
+
+function loadSheetIntoImportState(sheetIndex) {
+    const wb = STATE.csvImportState.workbook;
+    if (!wb) return;
+    const sheetName = STATE.csvImportState.sheetNames[sheetIndex] || STATE.csvImportState.sheetNames[0];
+    STATE.csvImportState.selectedSheet = sheetName;
+    const ws = wb.Sheets[sheetName];
+    if (!ws) return;
+
+    // Zu 2D-Array konvertieren mit Rohwerten als formatierte Strings
+    const rawData = window.XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+    if (!rawData || rawData.length === 0) {
+        showToast(`Das Tabellenblatt "${sheetName}" enthält keine Daten.`, 'warning');
+        return;
+    }
+
+    // Kopfzeilen-Erkennung (Zeile mit meisten nicht-leeren Spalten in den ersten 6 Zeilen)
+    let headerRowIdx = 0;
+    let maxCols = 0;
+    for (let i = 0; i < Math.min(6, rawData.length); i++) {
+        const nonEmpties = (rawData[i] || []).filter(c => c !== '' && c !== null && c !== undefined).length;
+        if (nonEmpties > maxCols) {
+            maxCols = nonEmpties;
+            headerRowIdx = i;
+        }
+    }
+
+    const headers = (rawData[headerRowIdx] || []).map((h, i) => String(h).trim() || `Spalte_${i + 1}`);
+    const rows = [];
+    for (let r = headerRowIdx + 1; r < rawData.length; r++) {
+        const row = rawData[r];
+        if (!row) continue;
+        const hasContent = row.some(c => c !== '' && c !== null && c !== undefined);
+        if (hasContent) {
+            const rowArr = headers.map((_, idx) => {
+                let val = row[idx];
+                if (val === undefined || val === null) return '';
+                return String(val).trim();
+            });
+            rows.push(rowArr);
+        }
+    }
+
+    STATE.csvImportState.headers = headers;
+    STATE.csvImportState.rows = rows;
 
     const infoEl = document.getElementById('csvDetectedInfo');
     if (infoEl) {
-        infoEl.textContent = `${filename}: ${parsed.rows.length} Zeilen erkannt (Trennzeichen: "${delimiter === '\t' ? 'Tab' : delimiter}")`;
+        const sheetInfo = STATE.csvImportState.sheetNames.length > 1 ? ` (Blatt: "${sheetName}")` : '';
+        infoEl.textContent = `${STATE.csvImportState.fileName}${sheetInfo}: ${rows.length} Datenzeilen & ${headers.length} Spalten erkannt`;
     }
 
-    // Render Preview Table (first 5 rows)
+    // Rendere Vorschau-Tabelle (erste 6 Datenzeilen)
     const table = document.getElementById('csvPreviewTable');
     if (table) {
         let html = '<thead class="bg-slate-100 text-slate-700 font-bold border-b"><tr>';
-        parsed.headers.forEach(h => {
-            html += `<th class="py-2 px-3">${escapeHtml(h)}</th>`;
+        headers.forEach(h => {
+            html += `<th class="py-2.5 px-3 text-left whitespace-nowrap text-[11px]">${escapeHtml(h)}</th>`;
         });
         html += '</tr></thead><tbody class="divide-y divide-slate-100">';
-        parsed.rows.slice(0, 5).forEach((row, rIdx) => {
+        rows.slice(0, 6).forEach(row => {
             html += '<tr class="hover:bg-slate-50">';
-            parsed.headers.forEach((_, cIdx) => {
-                html += `<td class="py-1.5 px-3 truncate max-w-[150px]">${escapeHtml(row[cIdx] || '')}</td>`;
+            headers.forEach((_, cIdx) => {
+                html += `<td class="py-2 px-3 truncate max-w-[160px] text-xs font-mono text-slate-700">${escapeHtml(row[cIdx] || '')}</td>`;
             });
             html += '</tr>';
         });
@@ -2379,6 +2409,35 @@ function initCsvStep1(text, filename) {
 
     document.getElementById('csvDropZone').classList.add('hidden');
     document.getElementById('csvPreviewSection').classList.remove('hidden');
+}
+
+function resetCsvImport() {
+    STATE.csvImportState = {
+        workbook: null,
+        sheetNames: [],
+        selectedSheet: '',
+        headers: [],
+        rows: [],
+        validRows: [],
+        invalidRows: [],
+        mapping: {}
+    };
+    const fileInput = document.getElementById('csvFileInput');
+    if (fileInput) fileInput.value = '';
+    const dropZone = document.getElementById('csvDropZone');
+    if (dropZone) dropZone.classList.remove('hidden');
+    const previewSection = document.getElementById('csvPreviewSection');
+    if (previewSection) previewSection.classList.add('hidden');
+    const sheetContainer = document.getElementById('csvSheetSelectorContainer');
+    if (sheetContainer) sheetContainer.classList.add('hidden');
+
+    document.getElementById('csvStep1').classList.remove('hidden');
+    document.getElementById('csvStep2').classList.add('hidden');
+    document.getElementById('csvStep3').classList.add('hidden');
+
+    document.getElementById('importStepBadge1').className = 'flex items-center gap-1.5 text-teal-600 font-bold';
+    document.getElementById('importStepBadge2').className = 'flex items-center gap-1.5 text-slate-400';
+    document.getElementById('importStepBadge3').className = 'flex items-center gap-1.5 text-slate-400';
 }
 
 function proceedToCsvStep2() {
@@ -2399,21 +2458,116 @@ function backToCsvStep1() {
     document.getElementById('importStepBadge2').className = 'flex items-center gap-1.5 text-slate-400';
 }
 
+// Hilfsfunktion: Text normalisieren für Spaltenvergleich
+function normalizeCsvHeader(text) {
+    if (!text) return '';
+    return String(text)
+        .toLowerCase()
+        .trim()
+        .replace(/ä/g, 'ae')
+        .replace(/ö/g, 'oe')
+        .replace(/ü/g, 'ue')
+        .replace(/ß/g, 'ss')
+        .replace(/[^a-z0-9]/g, '');
+}
+
+// Universelle Spaltenheuristik
+function detectCsvField(rawHeader) {
+    const norm = normalizeCsvHeader(rawHeader);
+    if (!norm) return null;
+
+    // Bild-Spalten nicht als Name oder SKU matchen
+    if (norm.includes('bild') || norm.includes('foto') || norm.includes('image') || norm.includes('pic')) {
+        return null;
+    }
+
+    // 1. SKU (Modell / Artikelnummer)
+    if (norm.includes('artikelnummer') || norm.includes('artikelnr') || norm === 'artnr' || norm === 'sku' || norm.includes('modellnummer') || norm === 'modell' || norm === 'model' || norm.includes('itemno') || norm === 'art') {
+        return 'sku';
+    }
+
+    // 2. Barcode / EAN / GTIN
+    if (norm.includes('ean') || norm.includes('gtin') || norm.includes('barcode') || norm.includes('strichcode')) {
+        return 'barcode';
+    }
+
+    // 3. Größe (Einzelgröße)
+    if (norm.includes('groesse') || norm.includes('grosse') || norm.includes('size') || norm.includes('einzelgr') || norm.includes('schuhgr') || norm.includes('groessenverlauf')) {
+        return 'size';
+    }
+
+    // 4. Farbe (Farbbezeichnung)
+    if (norm.includes('farbe') || norm.includes('colour') || norm.includes('color') || norm.includes('farbbezeichnung')) {
+        return 'color';
+    }
+
+    // 5. Menge / Bestand
+    if (norm.includes('menge') || norm.includes('ordermenge') || norm.includes('qty') || norm.includes('quantity') || norm.includes('paar') || norm === 'stk' || norm === 'stueck' || norm.includes('bestand')) {
+        return 'stock_quantity';
+    }
+
+    // 6. Einkaufspreis (EK)
+    if (norm.includes('einkauf') || norm.includes('purchase') || norm.includes('ekdeutschland') || norm.startsWith('ek') || norm === 'hap' || norm === 'price' || norm === 'preis') {
+        return 'cost_price';
+    }
+
+    // 7. Verkaufspreis (VK / UVP)
+    if (norm.includes('verkauf') || norm.includes('retail') || norm.includes('uvp') || norm.includes('rrp') || norm.startsWith('vk')) {
+        return 'sell_price';
+    }
+
+    // 8. Auftragsnummer (nicht Positionsnummer)
+    if ((norm.includes('auftragsnummer') || norm.includes('bestellnummer') || norm.includes('ordernumber') || norm === 'orderno') && !norm.includes('position')) {
+        return 'order_number';
+    }
+
+    // 9. Liefertermin / Datum
+    if (norm.includes('liefertermin') || norm.includes('lieferdatum') || norm.includes('deliverydate') || norm.includes('lieferwoche') || norm.includes('rechnungsdatum') || norm.includes('bestelldatum') || norm.includes('orderdate') || norm === 'datum' || norm === 'date') {
+        return 'delivery_date';
+    }
+
+    // 10. Name / Modellname
+    if (norm.includes('artikelname') || norm.includes('modellname') || norm.includes('produktname') || norm.includes('bezeichnung') || norm === 'name' || norm === 'titel' || norm === 'title') {
+        return 'name';
+    }
+
+    // 11. Hersteller / Marke
+    if (norm.includes('marke') || norm.includes('hersteller') || norm.includes('brand')) {
+        return 'manufacturer';
+    }
+
+    // 12. Lieferant
+    if (norm.includes('lieferant') || norm.includes('supplier') || norm.includes('vendor')) {
+        return 'supplier';
+    }
+
+    // 13. Kategorie
+    if (norm.includes('kategorie') || norm.includes('category') || norm.includes('warengruppe')) {
+        return 'category';
+    }
+
+    return null;
+}
+
+// Definition der Zielfelder
 const CSV_TARGET_FIELDS = [
-    { key: 'name', label: 'Artikelname *', required: true, aliases: ['name', 'artikelname', 'artikel', 'bezeichnung', 'produkt', 'titel', 'item', 'title'] },
-    { key: 'barcode', label: 'Barcode / EAN', required: false, aliases: ['ean', 'barcode', 'gtin', 'ean13', 'ean-13', 'upc', 'code'] },
-    { key: 'sku', label: 'Artikelnr. (SKU)', required: false, aliases: ['sku', 'artikelnummer', 'artikelnr', 'art-nr', 'art_nr', 'artnr', 'item_no', 'nummer'] },
-    { key: 'category', label: 'Kategorie', required: false, aliases: ['kategorie', 'category', 'warengruppe', 'gruppe', 'rubrik'] },
-    { key: 'cost_price', label: 'Einkaufspreis netto (€)', required: false, aliases: ['ek', 'einkauf', 'einkaufspreis', 'ek_netto', 'cost', 'cost_price', 'purchase_price'] },
-    { key: 'sell_price', label: 'Verkaufspreis brutto (€)', required: false, aliases: ['vk', 'verkauf', 'verkaufspreis', 'vk_brutto', 'preis', 'price', 'retail_price', 'uvp'] },
-    { key: 'stock_quantity', label: 'Lagerbestand', required: false, aliases: ['bestand', 'lagerbestand', 'menge', 'anzahl', 'stock', 'quantity', 'qty'] },
-    { key: 'min_stock', label: 'Mindestbestand', required: false, aliases: ['mindestbestand', 'min_stock', 'meldebestand', 'minbestand'] },
-    { key: 'manufacturer', label: 'Hersteller / Marke', required: false, aliases: ['hersteller', 'marke', 'brand', 'manufacturer'] },
-    { key: 'supplier', label: 'Lieferant', required: false, aliases: ['lieferant', 'supplier', 'vendor'] },
-    { key: 'storage_location', label: 'Lagerort / Regal', required: false, aliases: ['lagerort', 'ort', 'regal', 'fach', 'location', 'storage_location'] },
-    { key: 'tax_rate', label: 'MwSt-Satz (%)', required: false, aliases: ['mwst', 'steuersatz', 'tax', 'tax_rate', 'vat'] },
-    { key: 'unit', label: 'Einheit', required: false, aliases: ['einheit', 'unit', 've'] },
-    { key: 'description', label: 'Beschreibung / Notiz', required: false, aliases: ['beschreibung', 'notiz', 'bemerkung', 'info', 'text'] }
+    { key: 'sku', label: 'Artikelnr. / Modell (SKU)', required: false },
+    { key: 'barcode', label: 'Barcode / EAN / GTIN', required: false },
+    { key: 'size', label: 'Größe (Einzelgröße)', required: false },
+    { key: 'color', label: 'Farbe (Farbbezeichnung)', required: false },
+    { key: 'name', label: 'Artikelname / Bezeichnung', required: false },
+    { key: 'stock_quantity', label: 'Menge / Ordermenge', required: false },
+    { key: 'cost_price', label: 'Einkaufspreis netto (€)', required: false },
+    { key: 'sell_price', label: 'Verkaufspreis brutto (€)', required: false },
+    { key: 'manufacturer', label: 'Hersteller / Marke', required: false },
+    { key: 'supplier', label: 'Lieferant', required: false },
+    { key: 'category', label: 'Kategorie / Warengruppe', required: false },
+    { key: 'order_number', label: 'Auftragsnummer / Beleg-Nr.', required: false },
+    { key: 'delivery_date', label: 'Liefertermin / Datum', required: false },
+    { key: 'storage_location', label: 'Lagerort / Regal', required: false },
+    { key: 'tax_rate', label: 'MwSt-Satz (%)', required: false },
+    { key: 'unit', label: 'Einheit', required: false },
+    { key: 'description', label: 'Beschreibung / Notiz', required: false }
 ];
 
 function renderCsvColumnMapping() {
@@ -2423,26 +2577,30 @@ function renderCsvColumnMapping() {
     const headers = STATE.csvImportState.headers;
     let html = '';
 
-    CSV_TARGET_FIELDS.forEach(field => {
-        // Find best matching header automatically
-        let matchedIndex = -1;
-        for (let i = 0; i < headers.length; i++) {
-            const h = headers[i].toLowerCase().replace(/[^a-z0-9äöü]/g, '');
-            if (field.aliases.some(alias => h === alias || h.includes(alias))) {
-                matchedIndex = i;
-                break;
-            }
+    // Automatische Zuordnung durchführen (Jede Spalte maximal 1 Zielfeld)
+    const fieldToHeaderIndex = {};
+    const usedIndices = new Set();
+
+    headers.forEach((h, idx) => {
+        const fieldKey = detectCsvField(h);
+        if (fieldKey && fieldToHeaderIndex[fieldKey] === undefined && !usedIndices.has(idx)) {
+            fieldToHeaderIndex[fieldKey] = idx;
+            usedIndices.add(idx);
         }
+    });
+
+    CSV_TARGET_FIELDS.forEach(field => {
+        const matchedIndex = fieldToHeaderIndex[field.key] !== undefined ? fieldToHeaderIndex[field.key] : -1;
 
         html += `
-            <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+            <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
                 <label class="text-xs font-bold text-slate-800 mb-1 flex items-center justify-between">
                     <span>${escapeHtml(field.label)}</span>
                     ${field.required ? '<span class="text-rose-500 text-[10px]">Pflichtfeld</span>' : ''}
                 </label>
-                <select id="csvMap_${field.key}" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500">
+                <select id="csvMap_${field.key}" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-teal-500">
                     <option value="-1">-- Nicht zuordnen --</option>
-                    ${headers.map((h, idx) => `<option value="${idx}" ${idx === matchedIndex ? 'selected' : ''}>Spalte "${escapeHtml(h)}"</option>`).join('')}
+                    ${headers.map((h, idx) => `<option value="${idx}" ${idx === matchedIndex ? 'selected' : ''}>Spalte "${escapeHtml(h)}"` + (idx === matchedIndex ? ' (Automatisch erkannt)' : '') + `</option>`).join('')}
                 </select>
             </div>
         `;
@@ -2479,8 +2637,13 @@ function proceedToCsvStep3() {
         }
     });
 
-    if (mapping.name === -1) {
-        showToast('Bitte ordnen Sie mindestens die Spalte "Artikelname *" zu.', 'error');
+    // Check minimum required fields: Either name OR sku OR barcode must be mapped!
+    const hasNameOrSku = (mapping.name !== -1 && mapping.name !== undefined) || 
+                         (mapping.sku !== -1 && mapping.sku !== undefined) ||
+                         (mapping.barcode !== -1 && mapping.barcode !== undefined);
+
+    if (!hasNameOrSku) {
+        showToast('Bitte ordnen Sie mindestens die Spalte "Artikelname", "Artikelnr. (SKU)" oder "Barcode / EAN" zu.', 'error');
         return;
     }
 
@@ -2492,41 +2655,67 @@ function proceedToCsvStep3() {
     const errors = [];
     let duplicateCount = 0;
 
-    const existingBarcodes = new Set(STATE.products.filter(p => p.barcode).map(p => p.barcode.toLowerCase()));
-    const existingSkus = new Set(STATE.products.filter(p => p.sku).map(p => p.sku.toLowerCase()));
+    const existingBarcodes = new Set(STATE.products.filter(p => p.barcode).map(p => String(p.barcode).toLowerCase().trim()));
+    const existingSkus = new Set(STATE.products.filter(p => p.sku).map(p => String(p.sku).toLowerCase().trim()));
 
     rows.forEach((row, idx) => {
         const lineNum = idx + 2; // header is line 1
-        const nameCol = mapping.name !== -1 ? row[mapping.name] : '';
-        const name = (nameCol || '').trim();
 
-        if (!name) {
-            errors.push({ line: lineNum, col: 'Artikelname', error: 'Name fehlt oder ist leer', fix: 'Zeile wird ignoriert oder Name in CSV eintragen.' });
+        const rawSku = mapping.sku !== -1 && mapping.sku !== undefined ? String(row[mapping.sku] || '').trim() : '';
+        const rawBarcode = mapping.barcode !== -1 && mapping.barcode !== undefined ? String(row[mapping.barcode] || '').trim() : '';
+        const rawSize = mapping.size !== -1 && mapping.size !== undefined ? String(row[mapping.size] || '').trim() : '';
+        const rawColor = mapping.color !== -1 && mapping.color !== undefined ? String(row[mapping.color] || '').trim() : '';
+        let rawName = mapping.name !== -1 && mapping.name !== undefined ? String(row[mapping.name] || '').trim() : '';
+
+        // Intelligent Fallback for name: Construct clean name from SKU + Color + Size if no explicit column
+        if (!rawName) {
+            const parts = [];
+            if (rawSku) parts.push(rawSku);
+            if (rawColor) parts.push(rawColor);
+            if (rawSize) parts.push(`Gr. ${rawSize}`);
+            rawName = parts.join(' ').trim() || (rawBarcode ? `Artikel ${rawBarcode}` : `Artikel ${idx + 1}`);
+        }
+
+        if (!rawName && !rawSku && !rawBarcode) {
+            errors.push({ line: lineNum, col: 'Identifikation', error: 'Kein Name, SKU oder Barcode vorhanden', fix: 'Zeile wird ignoriert.' });
             return;
         }
 
-        const barcode = mapping.barcode !== -1 ? (row[mapping.barcode] || '').trim() : '';
-        const sku = mapping.sku !== -1 ? (row[mapping.sku] || '').trim() : '';
-        const category = mapping.category !== -1 ? (row[mapping.category] || 'Allgemein').trim() : 'Allgemein';
-        const costPrice = mapping.cost_price !== -1 ? parseGermanNumber(row[mapping.cost_price], 0) : 0;
-        const sellPrice = mapping.sell_price !== -1 ? parseGermanNumber(row[mapping.sell_price], 0) : 0;
-        const stockQuantity = mapping.stock_quantity !== -1 ? Math.round(parseGermanNumber(row[mapping.stock_quantity], 0)) : 0;
-        const minStock = mapping.min_stock !== -1 ? Math.round(parseGermanNumber(row[mapping.min_stock], 3)) : 3;
-        const manufacturer = mapping.manufacturer !== -1 ? (row[mapping.manufacturer] || '').trim() : '';
-        const supplier = mapping.supplier !== -1 ? (row[mapping.supplier] || '').trim() : '';
-        const storageLocation = mapping.storage_location !== -1 ? (row[mapping.storage_location] || '').trim() : '';
-        const taxRate = mapping.tax_rate !== -1 ? Math.round(parseGermanNumber(row[mapping.tax_rate], 19)) : 19;
-        const unit = mapping.unit !== -1 ? (row[mapping.unit] || 'Stk.').trim() : 'Stk.';
-        const description = mapping.description !== -1 ? (row[mapping.description] || '').trim() : '';
+        const category = mapping.category !== -1 && mapping.category !== undefined ? (String(row[mapping.category] || '').trim() || 'Schuhe') : 'Schuhe';
+        const costPrice = mapping.cost_price !== -1 && mapping.cost_price !== undefined ? parseGermanNumber(row[mapping.cost_price], 0) : 0;
+        const sellPrice = mapping.sell_price !== -1 && mapping.sell_price !== undefined ? parseGermanNumber(row[mapping.sell_price], 0) : 0;
+        const stockQuantity = mapping.stock_quantity !== -1 && mapping.stock_quantity !== undefined ? Math.max(1, Math.round(parseGermanNumber(row[mapping.stock_quantity], 1))) : 1;
+        const minStock = mapping.min_stock !== -1 && mapping.min_stock !== undefined ? Math.round(parseGermanNumber(row[mapping.min_stock], 3)) : 3;
+        const manufacturer = mapping.manufacturer !== -1 && mapping.manufacturer !== undefined ? String(row[mapping.manufacturer] || '').trim() : '';
+        const supplier = mapping.supplier !== -1 && mapping.supplier !== undefined ? String(row[mapping.supplier] || '').trim() : '';
+        const storageLocation = mapping.storage_location !== -1 && mapping.storage_location !== undefined ? String(row[mapping.storage_location] || '').trim() : '';
+        const taxRate = mapping.tax_rate !== -1 && mapping.tax_rate !== undefined ? Math.round(parseGermanNumber(row[mapping.tax_rate], 19)) : 19;
+        const unit = mapping.unit !== -1 && mapping.unit !== undefined ? (String(row[mapping.unit] || '').trim() || 'Paar') : 'Paar';
+        
+        // Build rich description preserving size, color, order number, delivery date
+        const descParts = [];
+        if (mapping.description !== -1 && mapping.description !== undefined && row[mapping.description]) {
+            descParts.push(String(row[mapping.description]).trim());
+        }
+        if (rawSize) descParts.push(`Größe: ${rawSize}`);
+        if (rawColor) descParts.push(`Farbe: ${rawColor}`);
+        if (mapping.order_number !== -1 && mapping.order_number !== undefined && row[mapping.order_number]) {
+            descParts.push(`Auftrags-Nr.: ${row[mapping.order_number]}`);
+        }
+        if (mapping.delivery_date !== -1 && mapping.delivery_date !== undefined && row[mapping.delivery_date]) {
+            descParts.push(`Liefertermin: ${row[mapping.delivery_date]}`);
+        }
+        const description = descParts.join(' | ');
 
         // Duplicate check
-        const isDuplicate = (barcode && existingBarcodes.has(barcode.toLowerCase())) || (sku && existingSkus.has(sku.toLowerCase()));
+        const isDuplicate = (rawBarcode && existingBarcodes.has(rawBarcode.toLowerCase())) || 
+                            (rawSku && existingSkus.has(rawSku.toLowerCase()));
         if (isDuplicate) duplicateCount++;
 
         validItems.push({
-            name,
-            barcode,
-            sku,
+            name: rawName,
+            barcode: rawBarcode,
+            sku: rawSku,
             category,
             cost_price: costPrice,
             sell_price: sellPrice,
@@ -2538,6 +2727,8 @@ function proceedToCsvStep3() {
             tax_rate: taxRate,
             unit,
             description,
+            size: rawSize,
+            color: rawColor,
             isDuplicate
         });
     });
@@ -2549,21 +2740,61 @@ function proceedToCsvStep3() {
     const summaryEl = document.getElementById('csvValidationSummary');
     if (summaryEl) {
         let html = `
-            <div class="grid grid-cols-3 gap-3 text-center">
-                <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
-                    <div class="text-xs text-emerald-800 font-semibold uppercase">Bereit zum Import</div>
+            <div class="grid grid-cols-3 gap-3 text-center my-2">
+                <div class="bg-emerald-50 border border-emerald-200 rounded-2xl p-3 shadow-xs">
+                    <div class="text-[11px] text-emerald-800 font-bold uppercase">Bereit zum Import</div>
                     <div class="text-2xl font-black text-emerald-700">${validItems.length}</div>
                 </div>
-                <div class="bg-amber-50 border border-amber-200 rounded-xl p-3">
-                    <div class="text-xs text-amber-800 font-semibold uppercase">Bereits im System</div>
+                <div class="bg-amber-50 border border-amber-200 rounded-2xl p-3 shadow-xs">
+                    <div class="text-[11px] text-amber-800 font-bold uppercase">Bereits im System</div>
                     <div class="text-2xl font-black text-amber-700">${duplicateCount}</div>
                 </div>
-                <div class="bg-slate-50 border border-slate-200 rounded-xl p-3">
-                    <div class="text-xs text-slate-600 font-semibold uppercase">Fehlerhaft / Ignoriert</div>
+                <div class="bg-slate-50 border border-slate-200 rounded-2xl p-3 shadow-xs">
+                    <div class="text-[11px] text-slate-600 font-bold uppercase">Fehlerhaft / Ignoriert</div>
                     <div class="text-2xl font-black ${errors.length > 0 ? 'text-rose-600' : 'text-slate-700'}">${errors.length}</div>
                 </div>
             </div>
         `;
+
+        // Add a preview table of prepared items
+        if (validItems.length > 0) {
+            html += `
+                <div class="mt-3 border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-xs">
+                    <div class="bg-slate-50 px-3 py-2 text-xs font-bold text-slate-800 border-b border-slate-200 flex items-center justify-between">
+                        <span>Vorschau der aufbereiteten Artikel (erste 5 Zeilen):</span>
+                        <span class="text-[11px] text-slate-500 font-normal">Werte werden exakt übernommen</span>
+                    </div>
+                    <div class="max-h-36 overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-slate-100 text-slate-600 font-bold text-[11px]">
+                                <tr>
+                                    <th class="py-1.5 px-3">Artikelname</th>
+                                    <th class="py-1.5 px-3">Artikelnr. (SKU)</th>
+                                    <th class="py-1.5 px-3">EAN / Barcode</th>
+                                    <th class="py-1.5 px-3">Größe</th>
+                                    <th class="py-1.5 px-3">Farbe</th>
+                                    <th class="py-1.5 px-3">Menge</th>
+                                    <th class="py-1.5 px-3">EK (€)</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100 text-slate-700">
+                                ${validItems.slice(0, 5).map(item => `
+                                    <tr class="hover:bg-slate-50">
+                                        <td class="py-1.5 px-3 font-semibold truncate max-w-[150px]">${escapeHtml(item.name)}</td>
+                                        <td class="py-1.5 px-3 font-mono font-bold text-teal-700">${escapeHtml(item.sku || '-')}</td>
+                                        <td class="py-1.5 px-3 font-mono">${escapeHtml(item.barcode || '-')}</td>
+                                        <td class="py-1.5 px-3 font-bold text-slate-900">${escapeHtml(item.size || '-')}</td>
+                                        <td class="py-1.5 px-3">${escapeHtml(item.color || '-')}</td>
+                                        <td class="py-1.5 px-3 font-bold text-emerald-700">${item.stock_quantity} ${escapeHtml(item.unit)}</td>
+                                        <td class="py-1.5 px-3 font-semibold">${formatCurrency(item.cost_price)}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
 
         if (errors.length > 0) {
             html += `
@@ -2572,7 +2803,7 @@ function proceedToCsvStep3() {
                         <i data-lucide="alert-triangle" class="w-4 h-4"></i>
                         Gefundene Formatfehler (diese Zeilen werden übersprungen):
                     </div>
-                    <div class="max-h-36 overflow-y-auto">
+                    <div class="max-h-32 overflow-y-auto">
                         <table class="w-full text-left text-xs">
                             <thead class="bg-slate-100 text-slate-500 font-bold">
                                 <tr>
@@ -2583,7 +2814,7 @@ function proceedToCsvStep3() {
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-100 text-slate-700">
-                                ${errors.slice(0, 20).map(e => `
+                                ${errors.slice(0, 10).map(e => `
                                     <tr>
                                         <td class="py-1.5 px-3 font-mono font-bold">${e.line}</td>
                                         <td class="py-1.5 px-3 font-semibold">${escapeHtml(e.col)}</td>
@@ -2634,18 +2865,21 @@ async function executeCsvImport() {
     try {
         const result = await dataService.importProductsCsv(items, duplicateStrategy);
         closeModal('csvImportModal');
-        showToast(`Import erfolgreich: ${result.created || 0} neu angelegt, ${result.updated || 0} aktualisiert.`, 'success');
+        const countCreated = result.imported || result.created || 0;
+        const countUpdated = result.updated || 0;
+        const countSkipped = result.skipped || 0;
+        showToast(`Import erfolgreich: ${countCreated} neu angelegt, ${countUpdated} aktualisiert, ${countSkipped} übersprungen.`, 'success');
+        resetCsvImport();
         switchTab('products');
         renderProductsTable();
     } catch (err) {
-        showToast('Fehler beim CSV-Import: ' + err.message, 'error');
+        showToast('Fehler beim Import: ' + err.message, 'error');
     } finally {
         btn.disabled = false;
         btn.innerHTML = originalText;
     }
 }
 
-// =============================================================================
 // CSV EXPORT MIT UTF-8 BOM & FORMEL-INJEKTIONS-SCHUTZ
 // =============================================================================
 
