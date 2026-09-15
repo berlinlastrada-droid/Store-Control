@@ -1348,152 +1348,144 @@
     <!-- MODAL: CSV IMPORT ASSISTENT MIT VORSCHAU & SPALTENZUORDNUNG -->
     <!-- ========================================================================= -->
     <div id="csvImportModal" class="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm hidden flex items-center justify-center p-3 sm:p-4">
-        <div class="bg-white rounded-3xl max-w-3xl w-full p-5 sm:p-6 shadow-2xl border border-slate-100 relative animate-scaleIn max-h-[92vh] overflow-y-auto">
-            <div class="flex items-center justify-between pb-3 border-b border-slate-100 sticky top-0 bg-white z-10">
-                <div class="flex items-center gap-2">
-                    <div class="w-8 h-8 rounded-lg bg-teal-50 text-teal-600 flex items-center justify-center">
-                        <i data-lucide="file-up" class="w-5 h-5"></i>
+        <div class="bg-white rounded-3xl max-w-4xl w-full p-5 sm:p-7 shadow-2xl border border-slate-100 relative animate-scaleIn max-h-[92vh] overflow-y-auto flex flex-col">
+            <!-- Modal Header -->
+            <div class="flex items-center justify-between pb-3.5 border-b border-slate-100 sticky top-0 bg-white z-10">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center font-bold text-lg shadow-xs">
+                        <i data-lucide="layers" class="w-5 h-5 text-teal-600"></i>
                     </div>
                     <div>
-                        <h3 class="font-bold text-slate-900 text-base">Universal-Artikelimport (Excel &amp; CSV)</h3>
-                        <p class="text-xs text-slate-500">Unterstützt echte Microsoft Excel-Dateien (.xlsx, .xls) und CSV mit Vorschau, Tabellenblättern &amp; Duplikatsprüfung</p>
+                        <h3 class="font-bold text-slate-900 text-lg">Universal Excel- &amp; Lieferanten-Import</h3>
+                        <p class="text-xs text-slate-500">Automatische Analyse beliebiger Excel-Dateien (HW23, HW25, HW26, FS24–FS27, Skechers etc.) – ohne manuelle Zuordnung</p>
                     </div>
                 </div>
-                <button onclick="closeModal('csvImportModal')" class="text-slate-400 hover:text-slate-600 p-1">
+                <button onclick="closeModal('csvImportModal')" class="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition">
                     <i data-lucide="x" class="w-5 h-5"></i>
                 </button>
             </div>
 
-            <!-- Schritt-Navigation -->
-            <div class="flex items-center justify-between my-4 text-xs font-bold border-b border-slate-100 pb-3">
-                <div id="importStepBadge1" class="flex items-center gap-1.5 text-teal-600">
-                    <span class="w-5 h-5 rounded-full bg-teal-600 text-white flex items-center justify-center text-[10px]">1</span>
-                    Datei & Vorschau
-                </div>
-                <div class="h-0.5 w-6 bg-slate-200"></div>
-                <div id="importStepBadge2" class="flex items-center gap-1.5 text-slate-400">
-                    <span class="w-5 h-5 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-[10px]">2</span>
-                    Spalten zuordnen
-                </div>
-                <div class="h-0.5 w-6 bg-slate-200"></div>
-                <div id="importStepBadge3" class="flex items-center gap-1.5 text-slate-400">
-                    <span class="w-5 h-5 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-[10px]">3</span>
-                    Validierung & Duplikate
-                </div>
-            </div>
+            <!-- Modal Content Body -->
+            <div class="py-4 space-y-4 flex-1">
 
-            <!-- SCHRITT 1: DATEI AUSWÄHLEN -->
-            <div id="csvStep1" class="space-y-4">
-                <div id="csvDropZone" onclick="document.getElementById('csvFileInput').click()" class="border-2 border-dashed border-teal-400 bg-teal-50/40 hover:bg-teal-50 rounded-2xl p-6 sm:p-8 text-center cursor-pointer transition">
-                    <i data-lucide="file-spreadsheet" class="w-10 h-10 text-teal-600 mx-auto mb-2"></i>
-                    <div class="font-bold text-slate-800 text-sm">Klicken Sie hier oder ziehen Sie Ihre Datei hierher</div>
-                    <p class="text-xs text-slate-500 mt-1">Microsoft Excel-Dateien (.xlsx, .xls) sowie Standard-CSV beliebiger Hersteller (Rieker, Waldläufer, Caprice etc.)</p>
-                    <div class="mt-3 flex items-center justify-center gap-2">
-                        <span class="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-[11px] font-bold text-slate-700 shadow-xs">.XLSX</span>
-                        <span class="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-[11px] font-bold text-slate-700 shadow-xs">.XLS</span>
-                        <span class="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-[11px] font-bold text-slate-700 shadow-xs">.CSV</span>
-                        <span class="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-[11px] font-bold text-slate-700 shadow-xs">.TSV</span>
+                <!-- DROPZONE (Multi-File) -->
+                <div id="csvDropZone" onclick="document.getElementById('csvFileInput').click()" class="border-2 border-dashed border-teal-400 bg-teal-50/40 hover:bg-teal-50/70 rounded-3xl p-6 sm:p-9 text-center cursor-pointer transition">
+                    <i data-lucide="upload-cloud" class="w-12 h-12 text-teal-600 mx-auto mb-3 animate-pulse"></i>
+                    <div class="font-extrabold text-slate-900 text-base sm:text-lg">Klicken Sie hier oder ziehen Sie Ihre Excel-Dateien hierher</div>
+                    <p class="text-xs sm:text-sm text-slate-600 mt-1 max-w-lg mx-auto">Wählen Sie eine oder <strong>mehrere Excel-Dateien gleichzeitig</strong> aus (z. B. HW23, HW25, HW26, FS24, FS25, FS26, FS27, Skechers etc.). Die Software erkennt Tabellenstruktur, Größen, EANs, EK-Preise und Saisons vollautomatisch.</p>
+                    <div class="mt-4 flex flex-wrap items-center justify-center gap-2">
+                        <span class="px-3 py-1 bg-white border border-teal-200 rounded-xl text-xs font-bold text-teal-800 shadow-xs">.XLSX</span>
+                        <span class="px-3 py-1 bg-white border border-teal-200 rounded-xl text-xs font-bold text-teal-800 shadow-xs">.XLS</span>
+                        <span class="px-3 py-1 bg-white border border-teal-200 rounded-xl text-xs font-bold text-teal-800 shadow-xs">.CSV</span>
+                        <span class="px-3 py-1 bg-teal-600 text-white rounded-xl text-xs font-extrabold shadow-xs">⚡ Multi-File Batch</span>
                     </div>
                     <input type="file" id="csvFileInput" multiple accept=".xlsx,.xls,.csv,.tsv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" class="hidden" onchange="handleCsvFileSelected(event)">
                 </div>
 
-                <!-- Tabellenblatt-Auswahl bei mehreren Sheets -->
-                <div id="csvSheetSelectorContainer" class="hidden p-3.5 bg-teal-50/70 border border-teal-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div>
-                        <label class="block text-xs font-bold text-teal-900">Tabellenblatt auswählen:</label>
-                        <p class="text-[11px] text-teal-700">Diese Excel-Datei enthält mehrere Tabellenblätter. Wählen Sie das gewünschte Blatt:</p>
-                    </div>
-                    <select id="csvSheetSelect" onchange="handleCsvSheetChanged(this.value)" class="bg-white border border-teal-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500 min-w-[200px] shadow-xs">
-                    </select>
+                <!-- LOADING SPINNER WÄHREND ANALYSE -->
+                <div id="batchAnalysisSpinner" class="hidden text-center py-10 space-y-3">
+                    <div class="w-10 h-10 border-4 border-teal-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                    <div class="text-sm font-bold text-slate-800" id="batchAnalysisSpinnerText">Analysiere Excel-Dateien &amp; Tabellenblätter...</div>
+                    <p class="text-xs text-slate-500">Erkenne Artikelnummern, EANs, Größenformate, Farben, Mengen und Einkaufspreise...</p>
                 </div>
 
-                <div id="csvPreviewSection" class="hidden space-y-3">
-                    <div class="flex items-center justify-between text-xs font-semibold text-slate-700 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
-                        <span id="csvDetectedInfo" class="truncate max-w-[70%] font-bold text-teal-950">Datei erkannt: ...</span>
-                        <button type="button" onclick="resetCsvImport(); document.getElementById('csvFileInput').click();" class="text-teal-600 hover:text-teal-800 text-xs font-bold underline">Andere Datei wählen</button>
+                <!-- BATCH ANALYSE-ERGEBNIS & VORSCHAU -->
+                <div id="csvPreviewSection" class="hidden space-y-4">
+
+                    <!-- AUTOMATISCHE DATENPRÜFUNG SUMMARY KPI CARDS -->
+                    <div class="bg-gradient-to-r from-slate-900 to-slate-800 text-white rounded-2xl p-4 shadow-md">
+                        <div class="flex items-center justify-between border-b border-slate-700 pb-2 mb-3">
+                            <div class="flex items-center gap-2">
+                                <i data-lucide="check-circle" class="w-4 h-4 text-emerald-400"></i>
+                                <span class="text-xs font-bold uppercase tracking-wider text-emerald-400">Automatische Datenprüfung abgeschlossen</span>
+                            </div>
+                            <button type="button" onclick="resetCsvImport(); document.getElementById('csvFileInput').click();" class="text-xs text-slate-300 hover:text-white underline font-semibold">Andere Dateien wählen</button>
+                        </div>
+                        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 text-center" id="batchKpiGrid">
+                            <!-- Populated dynamically -->
+                        </div>
                     </div>
-                    <div class="overflow-x-auto border border-slate-200 rounded-2xl max-h-52 bg-white shadow-xs">
-                        <table class="w-full text-left text-xs" id="csvPreviewTable">
-                            <!-- Vorschauzeilen -->
-                        </table>
+
+                    <!-- LISTE DER ANALYSIERTEN DATEIEN -->
+                    <div class="border border-slate-200 rounded-2xl p-3.5 bg-slate-50/70 space-y-2">
+                        <div class="text-xs font-bold text-slate-800 flex items-center justify-between">
+                            <span>Erkannte Lieferanten-Dateien:</span>
+                            <span class="text-[11px] text-teal-700 font-semibold" id="batchFileCountBadge">0 Dateien</span>
+                        </div>
+                        <div class="max-h-36 overflow-y-auto space-y-1.5" id="batchFilesListContainer">
+                            <!-- Populated dynamically -->
+                        </div>
                     </div>
-                    <div class="flex justify-end pt-1">
-                        <button type="button" onclick="proceedToCsvStep2()" class="px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl text-xs transition shadow-sm">
-                            Weiter zu Spaltenzuordnung →
+
+                    <!-- TABELLARISCHE VORSCHAU DER ARTIKEL -->
+                    <div class="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-xs">
+                        <div class="bg-slate-50 px-3.5 py-2 text-xs font-bold text-slate-800 border-b border-slate-200 flex items-center justify-between">
+                            <span>Vorschau der aufbereiteten Artikel &amp; Bestellungen:</span>
+                            <span class="text-[11px] text-slate-500 font-normal">Alle Formate (EAN, Größen wie 4-, EK wie 31,70 €) exakt erhalten</span>
+                        </div>
+                        <div class="max-h-48 overflow-x-auto">
+                            <table class="w-full text-left text-xs" id="csvPreviewTable">
+                                <!-- Populated dynamically -->
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- FORMATFEHLER & UNKLARE PUNKTE (FALLS VORHANDEN) -->
+                    <div id="batchErrorsContainer" class="hidden border border-rose-200 bg-rose-50/70 rounded-2xl p-3.5 space-y-2">
+                        <div class="text-xs font-bold text-rose-800 flex items-center gap-1.5">
+                            <i data-lucide="alert-triangle" class="w-4 h-4"></i>
+                            <span id="batchErrorsTitle">Unklare Punkte / Formatfehler:</span>
+                        </div>
+                        <div class="max-h-28 overflow-y-auto" id="batchErrorsList">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- DUPLIKATS- & HISTORIEN-STRATEGIE -->
+                    <div class="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2">
+                        <label class="block text-xs font-bold text-slate-800 uppercase">Behandlung bestehender Artikel &amp; Bestellhistorie:</label>
+                        <div class="space-y-2 text-xs">
+                            <label class="flex items-center gap-2.5 p-2.5 bg-white rounded-xl border border-teal-300 ring-1 ring-teal-500/20 cursor-pointer shadow-xs">
+                                <input type="radio" name="csvDuplicateStrategy" value="update" checked class="text-teal-600 focus:ring-teal-500">
+                                <div>
+                                    <span class="font-bold text-slate-900">Bestehende Artikel aktualisieren &amp; Bestellhistorie lückenlos ergänzen (Empfohlen)</span>
+                                    <p class="text-slate-500 text-[11px]">Aktualisiert EK/VK und addiert neue Liefermengen. Jede Bestellung bleibt mit Saison, Auftrags-Nr., Datum und Menge dauerhaft in der Historie erhalten.</p>
+                                </div>
+                            </label>
+                            <label class="flex items-center gap-2.5 p-2.5 bg-white rounded-xl border border-slate-200 cursor-pointer">
+                                <input type="radio" name="csvDuplicateStrategy" value="skip" class="text-teal-600 focus:ring-teal-500">
+                                <div>
+                                    <span class="font-bold text-slate-900">Nur neue Artikel importieren (Bestehende überspringen)</span>
+                                    <p class="text-slate-500 text-[11px]">Bereits vorhandene Schuhe bleiben unverändert. Es werden nur völlig neue Artikel angelegt.</p>
+                                </div>
+                            </label>
+                            <label class="flex items-center gap-2.5 p-2.5 bg-white rounded-xl border border-slate-200 cursor-pointer">
+                                <input type="radio" name="csvDuplicateStrategy" value="create" class="text-teal-600 focus:ring-teal-500">
+                                <div>
+                                    <span class="font-bold text-slate-900">Alle Einträge als separate Artikel anlegen</span>
+                                    <p class="text-slate-500 text-[11px]">Erzeugt für jede Zeile einen neuen Artikeleintrag.</p>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- AKTION-BUTTONS: JA / ABBRECHEN -->
+                    <div class="flex items-center justify-between pt-3 border-t border-slate-100">
+                        <button type="button" onclick="resetCsvImport(); closeModal('csvImportModal');" class="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition">
+                            ✕ Abbrechen
+                        </button>
+                        <button type="button" id="csvExecuteImportBtn" onclick="executeBatchImport()" class="px-7 py-3 bg-teal-600 hover:bg-teal-700 text-white text-xs sm:text-sm font-extrabold rounded-xl shadow-lg transition flex items-center gap-2">
+                            <i data-lucide="check" class="w-4 h-4"></i>
+                            <span id="csvExecuteImportBtnText">Import jetzt durchführen (JA)</span>
                         </button>
                     </div>
-                </div>
-            </div>
 
-            <!-- SCHRITT 2: SPALTEN ZUORDNEN -->
-            <div id="csvStep2" class="hidden space-y-4">
-                <p class="text-xs text-slate-600">
-                    Weisen Sie den Spalten Ihrer CSV-Datei die entsprechenden Felder der Warenwirtschaft zu. Felder wurden anhand Ihrer Spaltennamen bereits automatisch vorausgewählt.
-                </p>
-
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-72 overflow-y-auto p-1 border border-slate-100 rounded-2xl bg-slate-50/50" id="csvColumnMappingContainer">
-                    <!-- Spaltenzuordnungen dynamisch generiert -->
                 </div>
 
-                <div class="flex justify-between pt-3 border-t border-slate-100">
-                    <button type="button" onclick="backToCsvStep1()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition">
-                        ← Zurück
-                    </button>
-                    <button type="button" onclick="proceedToCsvStep3()" class="px-5 py-2 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-xl transition">
-                        Weiter zu Duplikatsprüfung →
-                    </button>
-                </div>
-            </div>
-
-            <!-- SCHRITT 3: DUPLIKATSSTRATEGIE & VALIDIERUNG -->
-            <div id="csvStep3" class="hidden space-y-4">
-                <!-- Duplikate-Optionen -->
-                <div class="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-2">
-                    <label class="block text-xs font-bold text-slate-800 uppercase">Behandlung existierender Artikel (EAN / SKU):</label>
-                    <div class="space-y-2 text-xs">
-                        <label class="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer">
-                            <input type="radio" name="csvDuplicateStrategy" value="update" checked class="text-teal-600 focus:ring-teal-500">
-                            <div>
-                                <span class="font-bold text-slate-900">Bestehende Artikel aktualisieren (Empfohlen)</span>
-                                <p class="text-slate-500 text-[11px]">Aktualisiert Preise, Bestand und Stammdaten des existierenden Artikels.</p>
-                            </div>
-                        </label>
-                        <label class="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer">
-                            <input type="radio" name="csvDuplicateStrategy" value="skip" class="text-teal-600 focus:ring-teal-500">
-                            <div>
-                                <span class="font-bold text-slate-900">Überspringen</span>
-                                <p class="text-slate-500 text-[11px]">Existierende Artikel unverändert belassen und nur neue Artikel anlegen.</p>
-                            </div>
-                        </label>
-                        <label class="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer">
-                            <input type="radio" name="csvDuplicateStrategy" value="create" class="text-teal-600 focus:ring-teal-500">
-                            <div>
-                                <span class="font-bold text-slate-900">Als neue Artikel anlegen</span>
-                                <p class="text-slate-500 text-[11px]">Erzeugt separate Einträge auch bei doppelter EAN/SKU.</p>
-                            </div>
-                        </label>
-                    </div>
-                </div>
-
-                <!-- Validierungs-Zusammenfassung -->
-                <div id="csvValidationSummary" class="space-y-2">
-                    <!-- Dynamische Validierungs-Alerts & Fehlertabelle -->
-                </div>
-
-                <div class="flex justify-between pt-3 border-t border-slate-100">
-                    <button type="button" onclick="backToCsvStep2()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition">
-                        ← Zurück
-                    </button>
-                    <button type="button" id="csvExecuteImportBtn" onclick="executeCsvImport()" class="px-6 py-2.5 bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold rounded-xl shadow-md transition flex items-center gap-1.5">
-                        <i data-lucide="check" class="w-4 h-4"></i>
-                        <span>Import jetzt durchführen</span>
-                    </button>
-                </div>
             </div>
         </div>
     </div>
 
-    <!-- ========================================================================= -->
     <!-- MODAL: LAGERBEWEGUNGS-HISTORIE (STOCK MOVEMENTS) -->
     <!-- ========================================================================= -->
     <div id="stockHistoryModal" class="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm hidden flex items-center justify-center p-3 sm:p-4">
@@ -1681,7 +1673,39 @@
                     </div>
                 </div>
 
-                <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+                
+            <!-- BESTELL- & LIEFERHISTORIE (LÜCKENLOS GESPEICHERT) -->
+            <div id="productOrderHistorySection" class="hidden mt-5 pt-4 border-t border-slate-200 space-y-2.5">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="history" class="w-4 h-4 text-teal-600"></i>
+                        <h4 class="text-xs font-bold text-slate-900 uppercase tracking-wider">Lückenlose Bestell- &amp; Lieferhistorie</h4>
+                    </div>
+                    <span id="productOrderHistoryCount" class="px-2 py-0.5 bg-teal-50 text-teal-700 rounded-full text-[10px] font-bold">0 Bestellungen</span>
+                </div>
+                <div class="border border-slate-200 rounded-2xl overflow-hidden bg-slate-50/50">
+                    <div class="max-h-40 overflow-y-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-slate-100 text-slate-600 font-bold text-[10px] uppercase border-b border-slate-200">
+                                <tr>
+                                    <th class="py-1.5 px-3">Datum / Saison</th>
+                                    <th class="py-1.5 px-3">Auftrag / Pos.</th>
+                                    <th class="py-1.5 px-3">Quelle / Datei</th>
+                                    <th class="py-1.5 px-3">Größe</th>
+                                    <th class="py-1.5 px-3">Farbe</th>
+                                    <th class="py-1.5 px-3 text-right">Menge</th>
+                                    <th class="py-1.5 px-3 text-right">EK (€)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="productOrderHistoryTableBody" class="divide-y divide-slate-200/60 text-slate-700">
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
                     <button type="button" onclick="closeModal('productModal')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition">
                         Abbrechen
                     </button>
