@@ -745,13 +745,35 @@ router.put('/products/:id', requireAuth, (req, res) => {
     const existing = db.prepare('SELECT * FROM products WHERE id = ? AND is_deleted = 0').get(req.params.id);
     if (!existing) return res.status(404).json({ error: 'Artikel nicht gefunden.' });
 
-    const { storeId, name, barcode, sku, category, costPrice, sellPrice, stockQuantity, minStock, unit, clientVersion } = req.body;
+    const {
+        storeId, name, barcode, sku, category,
+        costPrice, sellPrice, cost_price, sell_price,
+        stockQuantity, stock_quantity, minStock, min_stock, unit,
+        size, color, season, manufacturer, supplier,
+        storageLocation, storage_location, taxRate, tax_rate,
+        description, imageUrl, image_url,
+        clientVersion
+    } = req.body;
+
     if (clientVersion && clientVersion < existing.version) {
         return res.status(409).json({ error: 'Konflikt: Artikeldaten wurden anderweitig geändert.', serverRecord: existing });
     }
 
-    const costCents = costPrice !== undefined ? Math.round(parseFloat(costPrice) * 100) : existing.cost_price_cents;
-    const sellCents = sellPrice !== undefined ? Math.round(parseFloat(sellPrice) * 100) : existing.sell_price_cents;
+    const effectiveCostPrice = costPrice !== undefined ? costPrice : (cost_price !== undefined ? cost_price : undefined);
+    const effectiveSellPrice = sellPrice !== undefined ? sellPrice : (sell_price !== undefined ? sell_price : undefined);
+    const effectiveStockQty = stockQuantity !== undefined ? stockQuantity : (stock_quantity !== undefined ? stock_quantity : undefined);
+    const effectiveMinStock = minStock !== undefined ? minStock : (min_stock !== undefined ? min_stock : undefined);
+    const effectiveStorage = storageLocation !== undefined ? storageLocation : (storage_location !== undefined ? storage_location : undefined);
+    const effectiveTaxRate = taxRate !== undefined ? taxRate : (tax_rate !== undefined ? tax_rate : undefined);
+    const effectiveImageUrl = imageUrl !== undefined ? imageUrl : (image_url !== undefined ? image_url : undefined);
+
+    const costCents = effectiveCostPrice !== undefined ? Math.round(parseFloat(effectiveCostPrice) * 100) : existing.cost_price_cents;
+    const sellCents = effectiveSellPrice !== undefined ? Math.round(parseFloat(effectiveSellPrice) * 100) : existing.sell_price_cents;
+    const stockQtyVal = effectiveStockQty !== undefined ? parseInt(effectiveStockQty, 10) : existing.stock_quantity;
+    const minStockVal = effectiveMinStock !== undefined ? parseInt(effectiveMinStock, 10) : existing.min_stock;
+    const taxRateVal = effectiveTaxRate !== undefined ? parseFloat(effectiveTaxRate) : existing.tax_rate;
+    const imgUrlVal = effectiveImageUrl !== undefined ? effectiveImageUrl : existing.image_url;
+
     const now = new Date().toISOString();
     const newVersion = existing.version + 1;
 
@@ -764,15 +786,44 @@ router.put('/products/:id', requireAuth, (req, res) => {
             category = COALESCE(?, category),
             cost_price_cents = ?,
             sell_price_cents = ?,
-            stock_quantity = COALESCE(?, stock_quantity),
-            min_stock = COALESCE(?, min_stock),
+            stock_quantity = ?,
+            min_stock = ?,
             unit = COALESCE(?, unit),
+            size = COALESCE(?, size),
+            color = COALESCE(?, color),
+            season = COALESCE(?, season),
+            manufacturer = COALESCE(?, manufacturer),
+            supplier = COALESCE(?, supplier),
+            storage_location = COALESCE(?, storage_location),
+            tax_rate = ?,
+            description = COALESCE(?, description),
+            image_url = ?,
             updated_at = ?,
             version = ?
         WHERE id = ?
     `).run(
-        storeId, name, barcode, sku, category, costCents, sellCents,
-        stockQuantity, minStock, unit, now, newVersion, req.params.id
+        storeId !== undefined ? storeId : null,
+        name !== undefined ? name.trim() : null,
+        barcode !== undefined ? barcode.trim() : null,
+        sku !== undefined ? sku.trim() : null,
+        category !== undefined ? category.trim() : null,
+        costCents,
+        sellCents,
+        stockQtyVal,
+        minStockVal,
+        unit !== undefined ? unit : null,
+        size !== undefined ? size.trim() : null,
+        color !== undefined ? color.trim() : null,
+        season !== undefined ? season.trim() : null,
+        manufacturer !== undefined ? manufacturer.trim() : null,
+        supplier !== undefined ? supplier.trim() : null,
+        effectiveStorage !== undefined ? effectiveStorage.trim() : null,
+        taxRateVal,
+        description !== undefined ? description.trim() : null,
+        imgUrlVal,
+        now,
+        newVersion,
+        req.params.id
     );
 
     const updated = {
@@ -784,9 +835,21 @@ router.put('/products/:id', requireAuth, (req, res) => {
         category: category !== undefined ? category : existing.category,
         costPrice: costCents / 100,
         sellPrice: sellCents / 100,
-        stockQuantity: stockQuantity !== undefined ? stockQuantity : existing.stock_quantity,
-        minStock: minStock !== undefined ? minStock : existing.min_stock,
+        cost_price: costCents / 100,
+        sell_price: sellCents / 100,
+        stockQuantity: stockQtyVal,
+        stock_quantity: stockQtyVal,
+        minStock: minStockVal,
         unit: unit !== undefined ? unit : existing.unit,
+        size: size !== undefined ? size : existing.size,
+        color: color !== undefined ? color : existing.color,
+        season: season !== undefined ? season : existing.season,
+        manufacturer: manufacturer !== undefined ? manufacturer : existing.manufacturer,
+        supplier: supplier !== undefined ? supplier : existing.supplier,
+        storageLocation: effectiveStorage !== undefined ? effectiveStorage : existing.storage_location,
+        description: description !== undefined ? description : existing.description,
+        imageUrl: imgUrlVal,
+        image_url: imgUrlVal,
         updatedAt: now,
         version: newVersion
     };
@@ -795,6 +858,51 @@ router.put('/products/:id', requireAuth, (req, res) => {
     broadcastEvent('PRODUCT_CHANGED', { action: 'UPDATE', product: updated });
 
     res.json({ success: true, product: updated });
+});
+
+// BILD-UPLOAD FÜR ARTIKEL (BASE64 ODER DIREKTDATEI)
+router.post('/products/:id/image-upload', requireAuth, (req, res) => {
+    try {
+        const { dataUrl, removeImage } = req.body;
+        const productId = req.params.id;
+
+        const existing = db.prepare('SELECT * FROM products WHERE id = ? AND is_deleted = 0').get(productId);
+        if (!existing) return res.status(404).json({ error: 'Artikel nicht gefunden.' });
+
+        const now = new Date().toISOString();
+        let newImageUrl = existing.image_url;
+
+        if (removeImage) {
+            newImageUrl = '';
+        } else if (dataUrl && dataUrl.startsWith('data:image/')) {
+            const matches = dataUrl.match(/^data:image\/([a-zA-Z0-9]+);base64,(.+)$/);
+            if (!matches) {
+                return res.status(400).json({ error: 'Ungültiges Bildformat' });
+            }
+            const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
+            const buffer = Buffer.from(matches[2], 'base64');
+            const cleanSku = (existing.sku || productId).replace(/[^a-zA-Z0-9_-]/g, '_');
+            const fileName = `img_${cleanSku}_${Date.now()}.${ext}`;
+            const uploadDir = path.join(__dirname, '..', '..', 'uploads', 'products');
+            if (!fs.existsSync(uploadDir)) {
+                fs.mkdirSync(uploadDir, { recursive: true });
+            }
+            const targetPath = path.join(uploadDir, fileName);
+            fs.writeFileSync(targetPath, buffer);
+            newImageUrl = `/uploads/products/${fileName}`;
+        }
+
+        db.prepare('UPDATE products SET image_url = ?, updated_at = ?, version = version + 1 WHERE id = ?')
+          .run(newImageUrl, now, productId);
+
+        const updated = { ...existing, imageUrl: newImageUrl, image_url: newImageUrl, updatedAt: now, version: existing.version + 1 };
+        broadcastEvent('PRODUCT_CHANGED', { action: 'UPDATE', product: updated });
+
+        res.json({ success: true, imageUrl: newImageUrl });
+    } catch (err) {
+        console.error('Image upload error:', err);
+        res.status(500).json({ error: 'Fehler beim Bild-Upload: ' + err.message });
+    }
 });
 
 router.delete('/products/:id', requireAuth, requireRole(['admin', 'manager']), (req, res) => {
