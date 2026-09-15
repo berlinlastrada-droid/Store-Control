@@ -502,6 +502,24 @@ class DataService {
         }
     }
 
+    async batchImportProducts(batchData, duplicateStrategy = 'update') {
+        const res = await syncManager.apiRequest('/api/products/batch-import', {
+            method: 'POST',
+            body: JSON.stringify({ ...batchData, duplicateStrategy })
+        });
+        if (res && res.success) {
+            const freshProducts = await syncManager.apiRequest('/api/products');
+            if (freshProducts && freshProducts.products) {
+                this.products = freshProducts.products;
+            }
+        }
+        return res;
+    }
+
+    async getProductOrders(productId) {
+        return await syncManager.apiRequest(`/api/products/${productId}/orders`);
+    }
+
     async importProductsCsv(items, duplicateStrategy = 'update') {
         const res = await syncManager.apiRequest('/api/products/import-csv', {
             method: 'POST',

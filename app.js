@@ -1860,6 +1860,7 @@ function editProduct(id) {
     }
 
     document.getElementById('productModalTitle').textContent = 'Artikel bearbeiten';
+    loadProductOrderHistory(product.id);
     document.getElementById('prodEditId').value = prod.id;
     document.getElementById('prodName').value = prod.name || '';
     document.getElementById('prodStoreId').value = prod.storeId || '';
@@ -2285,330 +2286,6 @@ function createNewProductFromScannedCode() {
 // CSV IMPORT ASSISTENT (VORSCHAU, SPALTENZUORDNUNG, DUPLIKATE & FORMELSCHUTZ)
 // =============================================================================
 
-async function handleCsvFileSelected(event) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    try {
-        STATE.csvImportState = STATE.csvImportState || {};
-        STATE.csvImportState.fileName = file.name;
-        STATE.csvImportState.fileSize = file.size;
-
-        // Check if SheetJS (XLSX) is available
-        if (typeof window.XLSX === 'undefined') {
-            throw new Error('SheetJS-Bibliothek (xlsx.full.min.js) ist nicht geladen.');
-        }
-
-        const arrayBuffer = await file.arrayBuffer();
-
-        // Workbook mit SheetJS einlesen (unterstützt XLSX, XLS, CSV mit UTF-8)
-        const wb = window.XLSX.read(arrayBuffer, { type: 'array', cellDates: true, codepage: 65001 });
-        STATE.csvImportState.workbook = wb;
-        STATE.csvImportState.sheetNames = wb.SheetNames || [];
-
-        if (STATE.csvImportState.sheetNames.length === 0) {
-            throw new Error('Die ausgewählte Datei enthält keine lesbaren Tabellenblätter.');
-        }
-
-        // Tabellenblatt-Auswahl einrichten
-        const sheetContainer = document.getElementById('csvSheetSelectorContainer');
-        const sheetSelect = document.getElementById('csvSheetSelect');
-        if (sheetSelect && sheetContainer) {
-            sheetSelect.innerHTML = STATE.csvImportState.sheetNames.map((name, idx) => 
-                `<option value="${idx}">Tabellenblatt: ${escapeHtml(name)}</option>`
-            ).join('');
-
-            if (STATE.csvImportState.sheetNames.length > 1) {
-                sheetContainer.classList.remove('hidden');
-            } else {
-                sheetContainer.classList.add('hidden');
-            }
-        }
-
-        // Erstes Tabellenblatt laden
-        loadSheetIntoImportState(0);
-    } catch (err) {
-        console.error('Fehler beim Öffnen der Excel-/CSV-Datei:', err);
-        showToast('Fehler beim Öffnen der Datei: ' + err.message, 'error');
-    }
-}
-
-function handleCsvSheetChanged(sheetIndex) {
-    loadSheetIntoImportState(parseInt(sheetIndex, 10) || 0);
-}
-
-function loadSheetIntoImportState(sheetIndex) {
-    const wb = STATE.csvImportState.workbook;
-    if (!wb) return;
-    const sheetName = STATE.csvImportState.sheetNames[sheetIndex] || STATE.csvImportState.sheetNames[0];
-    STATE.csvImportState.selectedSheet = sheetName;
-    const ws = wb.Sheets[sheetName];
-    if (!ws) return;
-
-    // Zu 2D-Array konvertieren mit Rohwerten als formatierte Strings
-    const rawData = window.XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
-    if (!rawData || rawData.length === 0) {
-        showToast(`Das Tabellenblatt "${sheetName}" enthält keine Daten.`, 'warning');
-        return;
-    }
-
-    // Kopfzeilen-Erkennung (Zeile mit meisten nicht-leeren Spalten in den ersten 6 Zeilen)
-    let headerRowIdx = 0;
-    let maxCols = 0;
-    for (let i = 0; i < Math.min(6, rawData.length); i++) {
-        const nonEmpties = (rawData[i] || []).filter(c => c !== '' && c !== null && c !== undefined).length;
-        if (nonEmpties > maxCols) {
-            maxCols = nonEmpties;
-            headerRowIdx = i;
-        }
-    }
-
-    const headers = (rawData[headerRowIdx] || []).map((h, i) => String(h).trim() || `Spalte_${i + 1}`);
-    const rows = [];
-    for (let r = headerRowIdx + 1; r < rawData.length; r++) {
-        const row = rawData[r];
-        if (!row) continue;
-        const hasContent = row.some(c => c !== '' && c !== null && c !== undefined);
-        if (hasContent) {
-            const rowArr = headers.map((_, idx) => {
-                let val = row[idx];
-                if (val === undefined || val === null) return '';
-                return String(val).trim();
-            });
-            rows.push(rowArr);
-        }
-    }
-
-    STATE.csvImportState.headers = headers;
-    STATE.csvImportState.rows = rows;
-
-    const infoEl = document.getElementById('csvDetectedInfo');
-    if (infoEl) {
-        const sheetInfo = STATE.csvImportState.sheetNames.length > 1 ? ` (Blatt: "${sheetName}")` : '';
-        infoEl.textContent = `${STATE.csvImportState.fileName}${sheetInfo}: ${rows.length} Datenzeilen & ${headers.length} Spalten erkannt`;
-    }
-
-    // Rendere Vorschau-Tabelle (erste 6 Datenzeilen)
-    const table = document.getElementById('csvPreviewTable');
-    if (table) {
-        let html = '<thead class="bg-slate-100 text-slate-700 font-bold border-b"><tr>';
-        headers.forEach(h => {
-            html += `<th class="py-2.5 px-3 text-left whitespace-nowrap text-[11px]">${escapeHtml(h)}</th>`;
-        });
-        html += '</tr></thead><tbody class="divide-y divide-slate-100">';
-        rows.slice(0, 6).forEach(row => {
-            html += '<tr class="hover:bg-slate-50">';
-            headers.forEach((_, cIdx) => {
-                html += `<td class="py-2 px-3 truncate max-w-[160px] text-xs font-mono text-slate-700">${escapeHtml(row[cIdx] || '')}</td>`;
-            });
-            html += '</tr>';
-        });
-        html += '</tbody>';
-        table.innerHTML = html;
-    }
-
-    document.getElementById('csvDropZone').classList.add('hidden');
-    document.getElementById('csvPreviewSection').classList.remove('hidden');
-}
-
-function resetCsvImport() {
-    STATE.csvImportState = {
-        workbook: null,
-        sheetNames: [],
-        selectedSheet: '',
-        headers: [],
-        rows: [],
-        validRows: [],
-        invalidRows: [],
-        mapping: {}
-    };
-    const fileInput = document.getElementById('csvFileInput');
-    if (fileInput) fileInput.value = '';
-    const dropZone = document.getElementById('csvDropZone');
-    if (dropZone) dropZone.classList.remove('hidden');
-    const previewSection = document.getElementById('csvPreviewSection');
-    if (previewSection) previewSection.classList.add('hidden');
-    const sheetContainer = document.getElementById('csvSheetSelectorContainer');
-    if (sheetContainer) sheetContainer.classList.add('hidden');
-
-    document.getElementById('csvStep1').classList.remove('hidden');
-    document.getElementById('csvStep2').classList.add('hidden');
-    document.getElementById('csvStep3').classList.add('hidden');
-
-    document.getElementById('importStepBadge1').className = 'flex items-center gap-1.5 text-teal-600 font-bold';
-    document.getElementById('importStepBadge2').className = 'flex items-center gap-1.5 text-slate-400';
-    document.getElementById('importStepBadge3').className = 'flex items-center gap-1.5 text-slate-400';
-}
-
-function proceedToCsvStep2() {
-    document.getElementById('csvStep1').classList.add('hidden');
-    document.getElementById('csvStep2').classList.remove('hidden');
-
-    // Update Step Indicators
-    document.getElementById('importStepBadge1').className = 'flex items-center gap-1.5 text-slate-400';
-    document.getElementById('importStepBadge2').className = 'flex items-center gap-1.5 text-teal-600 font-bold';
-
-    renderCsvColumnMapping();
-}
-
-function backToCsvStep1() {
-    document.getElementById('csvStep2').classList.add('hidden');
-    document.getElementById('csvStep1').classList.remove('hidden');
-    document.getElementById('importStepBadge1').className = 'flex items-center gap-1.5 text-teal-600 font-bold';
-    document.getElementById('importStepBadge2').className = 'flex items-center gap-1.5 text-slate-400';
-}
-
-// Hilfsfunktion: Text normalisieren für Spaltenvergleich
-function normalizeCsvHeader(text) {
-    if (!text) return '';
-    return String(text)
-        .toLowerCase()
-        .trim()
-        .replace(/ä/g, 'ae')
-        .replace(/ö/g, 'oe')
-        .replace(/ü/g, 'ue')
-        .replace(/ß/g, 'ss')
-        .replace(/[^a-z0-9]/g, '');
-}
-
-// Universelle Spaltenheuristik
-function detectCsvField(rawHeader) {
-    const norm = normalizeCsvHeader(rawHeader);
-    if (!norm) return null;
-
-    // Bild-Spalten nicht als Name oder SKU matchen
-    if (norm.includes('bild') || norm.includes('foto') || norm.includes('image') || norm.includes('pic')) {
-        return null;
-    }
-
-    // 1. SKU (Modell / Artikelnummer)
-    if (norm.includes('artikelnummer') || norm.includes('artikelnr') || norm === 'artnr' || norm === 'sku' || norm.includes('modellnummer') || norm === 'modell' || norm === 'model' || norm.includes('itemno') || norm === 'art') {
-        return 'sku';
-    }
-
-    // 2. Barcode / EAN / GTIN
-    if (norm.includes('ean') || norm.includes('gtin') || norm.includes('barcode') || norm.includes('strichcode')) {
-        return 'barcode';
-    }
-
-    // 3. Größe (Einzelgröße)
-    if (norm.includes('groesse') || norm.includes('grosse') || norm.includes('size') || norm.includes('einzelgr') || norm.includes('schuhgr') || norm.includes('groessenverlauf')) {
-        return 'size';
-    }
-
-    // 4. Farbe (Farbbezeichnung)
-    if (norm.includes('farbe') || norm.includes('colour') || norm.includes('color') || norm.includes('farbbezeichnung')) {
-        return 'color';
-    }
-
-    // 5. Menge / Bestand
-    if (norm.includes('menge') || norm.includes('ordermenge') || norm.includes('qty') || norm.includes('quantity') || norm.includes('paar') || norm === 'stk' || norm === 'stueck' || norm.includes('bestand')) {
-        return 'stock_quantity';
-    }
-
-    // 6. Einkaufspreis (EK)
-    if (norm.includes('einkauf') || norm.includes('purchase') || norm.includes('ekdeutschland') || norm.startsWith('ek') || norm === 'hap' || norm === 'price' || norm === 'preis') {
-        return 'cost_price';
-    }
-
-    // 7. Verkaufspreis (VK / UVP)
-    if (norm.includes('verkauf') || norm.includes('retail') || norm.includes('uvp') || norm.includes('rrp') || norm.startsWith('vk')) {
-        return 'sell_price';
-    }
-
-    // 8. Auftragsnummer (nicht Positionsnummer)
-    if ((norm.includes('auftragsnummer') || norm.includes('bestellnummer') || norm.includes('ordernumber') || norm === 'orderno') && !norm.includes('position')) {
-        return 'order_number';
-    }
-
-    // 9. Liefertermin / Datum
-    if (norm.includes('liefertermin') || norm.includes('lieferdatum') || norm.includes('deliverydate') || norm.includes('lieferwoche') || norm.includes('rechnungsdatum') || norm.includes('bestelldatum') || norm.includes('orderdate') || norm === 'datum' || norm === 'date') {
-        return 'delivery_date';
-    }
-
-    // 10. Name / Modellname
-    if (norm.includes('artikelname') || norm.includes('modellname') || norm.includes('produktname') || norm.includes('bezeichnung') || norm === 'name' || norm === 'titel' || norm === 'title') {
-        return 'name';
-    }
-
-    // 11. Hersteller / Marke
-    if (norm.includes('marke') || norm.includes('hersteller') || norm.includes('brand')) {
-        return 'manufacturer';
-    }
-
-    // 12. Lieferant
-    if (norm.includes('lieferant') || norm.includes('supplier') || norm.includes('vendor')) {
-        return 'supplier';
-    }
-
-    // 13. Kategorie
-    if (norm.includes('kategorie') || norm.includes('category') || norm.includes('warengruppe')) {
-        return 'category';
-    }
-
-    return null;
-}
-
-// Definition der Zielfelder
-const CSV_TARGET_FIELDS = [
-    { key: 'sku', label: 'Artikelnr. / Modell (SKU)', required: false },
-    { key: 'barcode', label: 'Barcode / EAN / GTIN', required: false },
-    { key: 'size', label: 'Größe (Einzelgröße)', required: false },
-    { key: 'color', label: 'Farbe (Farbbezeichnung)', required: false },
-    { key: 'name', label: 'Artikelname / Bezeichnung', required: false },
-    { key: 'stock_quantity', label: 'Menge / Ordermenge', required: false },
-    { key: 'cost_price', label: 'Einkaufspreis netto (€)', required: false },
-    { key: 'sell_price', label: 'Verkaufspreis brutto (€)', required: false },
-    { key: 'manufacturer', label: 'Hersteller / Marke', required: false },
-    { key: 'supplier', label: 'Lieferant', required: false },
-    { key: 'category', label: 'Kategorie / Warengruppe', required: false },
-    { key: 'order_number', label: 'Auftragsnummer / Beleg-Nr.', required: false },
-    { key: 'delivery_date', label: 'Liefertermin / Datum', required: false },
-    { key: 'storage_location', label: 'Lagerort / Regal', required: false },
-    { key: 'tax_rate', label: 'MwSt-Satz (%)', required: false },
-    { key: 'unit', label: 'Einheit', required: false },
-    { key: 'description', label: 'Beschreibung / Notiz', required: false }
-];
-
-function renderCsvColumnMapping() {
-    const container = document.getElementById('csvColumnMappingContainer');
-    if (!container) return;
-
-    const headers = STATE.csvImportState.headers;
-    let html = '';
-
-    // Automatische Zuordnung durchführen (Jede Spalte maximal 1 Zielfeld)
-    const fieldToHeaderIndex = {};
-    const usedIndices = new Set();
-
-    headers.forEach((h, idx) => {
-        const fieldKey = detectCsvField(h);
-        if (fieldKey && fieldToHeaderIndex[fieldKey] === undefined && !usedIndices.has(idx)) {
-            fieldToHeaderIndex[fieldKey] = idx;
-            usedIndices.add(idx);
-        }
-    });
-
-    CSV_TARGET_FIELDS.forEach(field => {
-        const matchedIndex = fieldToHeaderIndex[field.key] !== undefined ? fieldToHeaderIndex[field.key] : -1;
-
-        html += `
-            <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
-                <label class="text-xs font-bold text-slate-800 mb-1 flex items-center justify-between">
-                    <span>${escapeHtml(field.label)}</span>
-                    ${field.required ? '<span class="text-rose-500 text-[10px]">Pflichtfeld</span>' : ''}
-                </label>
-                <select id="csvMap_${field.key}" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-teal-500">
-                    <option value="-1">-- Nicht zuordnen --</option>
-                    ${headers.map((h, idx) => `<option value="${idx}" ${idx === matchedIndex ? 'selected' : ''}>Spalte "${escapeHtml(h)}"` + (idx === matchedIndex ? ' (Automatisch erkannt)' : '') + `</option>`).join('')}
-                </select>
-            </div>
-        `;
-    });
-
-    container.innerHTML = html;
-}
-
 function parseGermanNumber(str, defaultValue = 0) {
     if (str === null || str === undefined || str === '') return defaultValue;
     if (typeof str === 'number') return str;
@@ -2627,229 +2304,527 @@ function parseGermanNumber(str, defaultValue = 0) {
     return isNaN(num) ? defaultValue : num;
 }
 
-function proceedToCsvStep3() {
-    // Read user mapping
-    const mapping = {};
-    CSV_TARGET_FIELDS.forEach(f => {
-        const select = document.getElementById('csvMap_' + f.key);
-        if (select) {
-            mapping[f.key] = parseInt(select.value, 10);
+function parseGermanDate(val) {
+    if (!val) return '';
+    if (typeof val === 'number' && val > 20000 && val < 70000) {
+        const utcDays = Math.floor(val - 25569);
+        const utcValue = utcDays * 86400;
+        const d = new Date(utcValue * 1000);
+        return d.toLocaleDateString('de-DE');
+    }
+    return String(val).trim();
+}
+
+// Normalisiert Text für präzisen Spaltenvergleich
+function normalizeCsvHeader(text) {
+    if (!text) return '';
+    return String(text)
+        .toLowerCase()
+        .trim()
+        .replace(/ä/g, 'ae')
+        .replace(/ö/g, 'oe')
+        .replace(/ü/g, 'ue')
+        .replace(/ß/g, 'ss')
+        .replace(/[^a-z0-9]/g, '');
+}
+
+// Universelle Spaltenheuristik (Zero-Manual-Mapping für alle Schuhlieferanten)
+function detectCsvField(rawHeader) {
+    const norm = normalizeCsvHeader(rawHeader);
+    if (!norm) return null;
+
+    // Bild-Spalten nicht als Name oder SKU matchen
+    if (norm.includes('bild') || norm.includes('foto') || norm.includes('image') || norm.includes('pic')) {
+        return null;
+    }
+
+    // 1. SKU / Modellnummer
+    if (norm.includes('artikelnummer') || norm.includes('artikelnr') || norm === 'artnr' || norm === 'sku' || norm.includes('modellnummer') || norm === 'modell' || norm === 'model' || norm.includes('itemno') || norm === 'art' || norm === 'styleid' || norm === 'styleno') {
+        return 'sku';
+    }
+
+    // 2. Barcode / EAN / GTIN
+    if (norm.includes('ean') || norm.includes('gtin') || norm.includes('barcode') || norm.includes('strichcode')) {
+        return 'barcode';
+    }
+
+    // 3. Größe (Einzelgröße)
+    if (norm.includes('groesse') || norm.includes('grosse') || norm.includes('size') || norm.includes('einzelgr') || norm.includes('schuhgr') || norm.includes('groessenverlauf')) {
+        return 'size';
+    }
+
+    // 4. Farbe (Farbbezeichnung)
+    if (norm.includes('farbe') || norm.includes('colour') || norm.includes('color') || norm.includes('farbbezeichnung')) {
+        return 'color';
+    }
+
+    // 5. Menge / Pairs / Ordermenge
+    if (norm.includes('menge') || norm.includes('ordermenge') || norm.includes('qty') || norm.includes('quantity') || norm.includes('paar') || norm === 'stk' || norm === 'stueck' || norm.includes('bestand') || norm === 'pairs') {
+        return 'stock_quantity';
+    }
+
+    // 6. Einkaufspreis (EK)
+    if (norm.includes('einkauf') || norm.includes('purchase') || norm.includes('ekdeutschland') || norm.startsWith('ek') || norm === 'hap' || norm === 'price' || norm === 'preis') {
+        return 'cost_price';
+    }
+
+    // 7. Verkaufspreis (VK / UVP)
+    if (norm.includes('verkauf') || norm.includes('retail') || norm.includes('uvp') || norm.includes('rrp') || norm.startsWith('vk')) {
+        return 'sell_price';
+    }
+
+    // 8. Name / Modellname / Style Name
+    if (norm.includes('artikelname') || norm.includes('modellname') || norm.includes('produktname') || norm.includes('bezeichnung') || norm === 'name' || norm === 'stylename' || norm === 'titel' || norm === 'title') {
+        return 'name';
+    }
+
+    // 9. Auftragsnummer (nicht Positionsnummer)
+    if ((norm.includes('auftragsnummer') || norm.includes('bestellnummer') || norm.includes('ordernumber') || norm === 'orderno' || norm === 'order') && !norm.includes('position')) {
+        return 'order_number';
+    }
+
+    // 10. Position
+    if (norm.includes('position') || norm.includes('posnr') || norm === 'pos') {
+        return 'order_position';
+    }
+
+    // 11. Beleg / PO
+    if (norm === 'po' || norm === 'pono' || norm.includes('belegnummer')) {
+        return 'po_number';
+    }
+
+    // 12. Liefertermin / Datum
+    if (norm.includes('liefertermin') || norm.includes('lieferdatum') || norm.includes('deliverydate') || norm.includes('lieferwoche') || norm.includes('shipdate')) {
+        return 'delivery_date';
+    }
+
+    // 13. Rechnungsdatum / Bestelldatum
+    if (norm.includes('rechnungsdatum') || norm.includes('bestelldatum') || norm.includes('orderdate') || norm === 'datum' || norm === 'date') {
+        return 'order_date';
+    }
+
+    // 14. Hersteller / Marke
+    if (norm.includes('marke') || norm.includes('hersteller') || norm.includes('brand')) {
+        return 'manufacturer';
+    }
+
+    // 15. Lieferant
+    if (norm.includes('lieferant') || norm.includes('supplier') || norm.includes('vendor')) {
+        return 'supplier';
+    }
+
+    // 16. Kategorie
+    // 16. Kategorie
+    if (norm.includes('kategorie') || norm.includes('category') || norm.includes('warengruppe')) {
+        return 'category';
+    }
+
+    // 17. Saison / Kollektion
+    if (norm.includes('saison') || norm.includes('season') || norm.includes('kollektion') || norm.includes('collection')) {
+        return 'season';
+    }
+
+    return null;
+}
+
+// Erkennt Größenraster-Spalten (z. B. Spalten '35', '36', '37', '38' ... '46' oder '4-')
+function detectMatrixSizes(headers) {
+    const sizeColumns = [];
+    headers.forEach((h, idx) => {
+        const str = String(h).trim();
+        if (/^[0-9]{2}(\.[0-9]|-[0-9]?)?$/.test(str) || /^[0-9]+-$/.test(str) || (parseFloat(str) >= 30 && parseFloat(str) <= 50)) {
+            sizeColumns.push({ index: idx, size: str });
         }
     });
+    return sizeColumns.length >= 3 ? sizeColumns : null;
+}
 
-    // Check minimum required fields: Either name OR sku OR barcode must be mapped!
-    const hasNameOrSku = (mapping.name !== -1 && mapping.name !== undefined) || 
-                         (mapping.sku !== -1 && mapping.sku !== undefined) ||
-                         (mapping.barcode !== -1 && mapping.barcode !== undefined);
+// Filtert irrelevante Informationsblätter automatisch heraus
+function isIgnoredSheet(sheetName) {
+    const s = String(sheetName || '').toLowerCase().trim();
+    return s.includes('anleitung') || s.includes('hinweis') || s.includes('deckblatt') || s.includes('legende') || s.includes('info') || s.includes('hilfe');
+}
 
-    if (!hasNameOrSku) {
-        showToast('Bitte ordnen Sie mindestens die Spalte "Artikelname", "Artikelnr. (SKU)" oder "Barcode / EAN" zu.', 'error');
+// Haupt-Handler: Unterstützt gleichzeitige Auswahl beliebig vieler Excel-/CSV-Dateien
+async function handleCsvFileSelected(event) {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+
+    // Check SheetJS
+    if (typeof window.XLSX === 'undefined') {
+        showToast('SheetJS-Bibliothek (xlsx.full.min.js) ist nicht verfügbar.', 'error');
         return;
     }
 
-    STATE.csvImportState.mapping = mapping;
+    document.getElementById('csvDropZone').classList.add('hidden');
+    document.getElementById('batchAnalysisSpinner').classList.remove('hidden');
+    document.getElementById('batchAnalysisSpinnerText').textContent = `Analysiere ${files.length} Datei(en) automatisch...`;
 
-    // Validate rows
-    const rows = STATE.csvImportState.rows;
-    const validItems = [];
-    const errors = [];
-    let duplicateCount = 0;
+    try {
+        const batchResults = [];
+        const fileSummaries = [];
+        const formatErrors = [];
+        let totalRowsFound = 0;
+        let totalSheetsProcessed = 0;
 
-    const existingBarcodes = new Set(STATE.products.filter(p => p.barcode).map(p => String(p.barcode).toLowerCase().trim()));
-    const existingSkus = new Set(STATE.products.filter(p => p.sku).map(p => String(p.sku).toLowerCase().trim()));
+        const existingBarcodes = new Set(STATE.products.filter(p => p.barcode).map(p => String(p.barcode).toLowerCase().trim()));
+        const existingSkus = new Set(STATE.products.filter(p => p.sku).map(p => String(p.sku).toLowerCase().trim()));
 
-    rows.forEach((row, idx) => {
-        const lineNum = idx + 2; // header is line 1
+        for (let fIdx = 0; fIdx < files.length; fIdx++) {
+            const file = files[fIdx];
+            const arrayBuffer = await file.arrayBuffer();
 
-        const rawSku = mapping.sku !== -1 && mapping.sku !== undefined ? String(row[mapping.sku] || '').trim() : '';
-        const rawBarcode = mapping.barcode !== -1 && mapping.barcode !== undefined ? String(row[mapping.barcode] || '').trim() : '';
-        const rawSize = mapping.size !== -1 && mapping.size !== undefined ? String(row[mapping.size] || '').trim() : '';
-        const rawColor = mapping.color !== -1 && mapping.color !== undefined ? String(row[mapping.color] || '').trim() : '';
-        let rawName = mapping.name !== -1 && mapping.name !== undefined ? String(row[mapping.name] || '').trim() : '';
+            // Read workbook with SheetJS (supports XLSX, XLS, CSV natively with UTF-8)
+            const wb = window.XLSX.read(arrayBuffer, { type: 'array', cellDates: true, codepage: 65001 });
+            const sheetNames = wb.SheetNames || [];
 
-        // Intelligent Fallback for name: Construct clean name from SKU + Color + Size if no explicit column
-        if (!rawName) {
-            const parts = [];
-            if (rawSku) parts.push(rawSku);
-            if (rawColor) parts.push(rawColor);
-            if (rawSize) parts.push(`Gr. ${rawSize}`);
-            rawName = parts.join(' ').trim() || (rawBarcode ? `Artikel ${rawBarcode}` : `Artikel ${idx + 1}`);
+            // Determine Season / Supplier hints from filename
+            let seasonHint = '';
+            const mSeason = file.name.match(/(?:^|[^a-zA-Z0-9])(HW\s*\d{2}|FS\s*\d{2})(?:$|[^a-zA-Z0-9])/i) || 
+                            file.name.match(/(HW\s*\d{2}|FS\s*\d{2})/i);
+            if (mSeason) seasonHint = mSeason[1].replace(/\s+/g, '').toUpperCase();
+
+            let manufacturerHint = '';
+            if (file.name.toLowerCase().includes('skechers')) manufacturerHint = 'Skechers';
+            else if (file.name.toLowerCase().includes('rieker')) manufacturerHint = 'Rieker';
+            else if (file.name.toLowerCase().includes('waldlaeufer') || file.name.toLowerCase().includes('waldläufer')) manufacturerHint = 'Waldläufer';
+
+            for (const sheetName of sheetNames) {
+                if (isIgnoredSheet(sheetName)) {
+                    continue; // Skip instructions / cover sheets automatically
+                }
+
+                totalSheetsProcessed++;
+                const ws = wb.Sheets[sheetName];
+                const rawData = window.XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+                if (!rawData || rawData.length < 2) continue;
+
+                // Detect Header row in first 6 lines
+                let headerRowIdx = 0;
+                let maxCols = 0;
+                for (let i = 0; i < Math.min(6, rawData.length); i++) {
+                    const nonEmpties = (rawData[i] || []).filter(c => c !== '' && c !== null && c !== undefined).length;
+                    if (nonEmpties > maxCols) {
+                        maxCols = nonEmpties;
+                        headerRowIdx = i;
+                    }
+                }
+
+                const headers = (rawData[headerRowIdx] || []).map((h, i) => String(h).trim() || `Spalte_${i + 1}`);
+                const rows = rawData.slice(headerRowIdx + 1).filter(r => r.some(c => c !== '' && c !== null && c !== undefined));
+                totalRowsFound += rows.length;
+
+                // Check for Matrix / Größenraster
+                const matrixSizes = detectMatrixSizes(headers);
+
+                // Auto-detect columns
+                const mapping = {};
+                const usedIndices = new Set();
+                headers.forEach((h, idx) => {
+                    const field = detectCsvField(h);
+                    if (field && mapping[field] === undefined && !usedIndices.has(idx)) {
+                        mapping[field] = idx;
+                        usedIndices.add(idx);
+                    }
+                });
+
+                let fileExtractedItems = 0;
+
+                if (matrixSizes) {
+                    // Größenraster-Tabelle (z. B. Größen 35-46 in Spalten)
+                    rows.forEach((row, rIdx) => {
+                        const lineNum = headerRowIdx + 1 + rIdx + 1;
+                        const rawSku = mapping.sku !== undefined ? String(row[mapping.sku] || '').trim() : '';
+                        const rawColor = mapping.color !== undefined ? String(row[mapping.color] || '').trim() : '';
+                        const rawName = mapping.name !== undefined ? String(row[mapping.name] || '').trim() : '';
+                        const rawEk = mapping.cost_price !== undefined ? parseGermanNumber(row[mapping.cost_price], 0) : 0;
+                        const rawVk = mapping.sell_price !== undefined ? parseGermanNumber(row[mapping.sell_price], 0) : 0;
+                        const rawOrderNo = mapping.order_number !== undefined ? String(row[mapping.order_number] || '').trim() : '';
+                        const rawOrderPos = mapping.order_position !== undefined ? String(row[mapping.order_position] || '').trim() : '';
+
+                        if (!rawSku && !rawName) {
+                            formatErrors.push({ file: file.name, sheet: sheetName, line: lineNum, error: 'Keine Artikelnummer oder Modell angegeben.' });
+                            return;
+                        }
+
+                        matrixSizes.forEach(sCol => {
+                            const qty = parseInt(row[sCol.index], 10) || 0;
+                            if (qty > 0) {
+                                const sizeStr = sCol.size;
+                                const constructedName = rawName || `${rawSku} ${rawColor} Gr. ${sizeStr}`.trim();
+                                const isDup = (rawSku && existingSkus.has(rawSku.toLowerCase()));
+
+                                const itemSeason = (mapping.season !== undefined ? String(row[mapping.season] || '').trim() : '') || seasonHint;
+                                batchResults.push({
+                                    source_file: file.name,
+                                    sheet_name: sheetName,
+                                    name: constructedName,
+                                    sku: rawSku,
+                                    barcode: '',
+                                    size: sizeStr,
+                                    color: rawColor,
+                                    season: itemSeason,
+                                    manufacturer: manufacturerHint,
+                                    stock_quantity: qty,
+                                    cost_price: rawEk,
+                                    sell_price: rawVk,
+                                    order_number: rawOrderNo,
+                                    order_position: rawOrderPos,
+                                    unit: 'Paar',
+                                    category: 'Schuhe',
+                                    description: `Größe: ${sizeStr}` + (rawColor ? ` | Farbe: ${rawColor}` : '') + (itemSeason ? ` | Saison: ${itemSeason}` : ''),
+                                    isDuplicate: isDup,
+                                    raw_data: { file: file.name, line: lineNum, size: sizeStr, qty }
+                                });
+                                fileExtractedItems++;
+                            }
+                        });
+                    });
+                } else {
+                    // Zeilenbasierte Tabelle (HW23-FS27, Skechers, Rieker, Waldläufer etc.)
+                    rows.forEach((row, rIdx) => {
+                        const lineNum = headerRowIdx + 1 + rIdx + 1;
+                        const rawSku = mapping.sku !== undefined ? String(row[mapping.sku] || '').trim() : '';
+                        const rawBarcode = mapping.barcode !== undefined ? String(row[mapping.barcode] || '').trim() : '';
+                        const rawSize = mapping.size !== undefined ? String(row[mapping.size] || '').trim() : '';
+                        const rawColor = mapping.color !== undefined ? String(row[mapping.color] || '').trim() : '';
+                        let rawName = mapping.name !== undefined ? String(row[mapping.name] || '').trim() : '';
+
+                        // Fallback für Name
+                        if (!rawName) {
+                            const parts = [];
+                            if (rawSku) parts.push(rawSku);
+                            if (rawColor) parts.push(rawColor);
+                            if (rawSize) parts.push(`Gr. ${rawSize}`);
+                            rawName = parts.join(' ').trim() || (rawBarcode ? `Artikel ${rawBarcode}` : '');
+                        }
+
+                        if (!rawName && !rawSku && !rawBarcode) {
+                            formatErrors.push({ file: file.name, sheet: sheetName, line: lineNum, error: 'Weder Artikelname noch SKU noch Barcode gefunden.' });
+                            return;
+                        }
+
+                        const costPrice = mapping.cost_price !== undefined ? parseGermanNumber(row[mapping.cost_price], 0) : 0;
+                        const sellPrice = mapping.sell_price !== undefined ? parseGermanNumber(row[mapping.sell_price], 0) : 0;
+                        const qty = mapping.stock_quantity !== undefined ? Math.max(1, Math.round(parseGermanNumber(row[mapping.stock_quantity], 1))) : 1;
+                        const orderNo = mapping.order_number !== undefined ? String(row[mapping.order_number] || '').trim() : (mapping.po_number !== undefined ? String(row[mapping.po_number] || '').trim() : '');
+                        const orderPos = mapping.order_position !== undefined ? String(row[mapping.order_position] || '').trim() : '';
+                        const delDate = mapping.delivery_date !== undefined ? parseGermanDate(row[mapping.delivery_date]) : '';
+                        const ordDate = mapping.order_date !== undefined ? parseGermanDate(row[mapping.order_date]) : '';
+                        const rawSeason = mapping.season !== undefined ? String(row[mapping.season] || '').trim() : '';
+                        const itemSeason = rawSeason || seasonHint;
+                        const manufacturer = mapping.manufacturer !== undefined ? String(row[mapping.manufacturer] || '').trim() : manufacturerHint;
+                        const supplier = mapping.supplier !== undefined ? String(row[mapping.supplier] || '').trim() : '';
+
+                        // Reiche Beschreibung aufbauen
+                        const descParts = [];
+                        if (rawSize) descParts.push(`Größe: ${rawSize}`);
+                        if (rawColor) descParts.push(`Farbe: ${rawColor}`);
+                        if (itemSeason) descParts.push(`Saison: ${itemSeason}`);
+                        if (orderNo) descParts.push(`Auftrag: ${orderNo}`);
+                        if (delDate) descParts.push(`Lieferung: ${delDate}`);
+                        const description = descParts.join(' | ');
+
+                        // Duplikatsprüfung
+                        const isDup = (rawBarcode && existingBarcodes.has(rawBarcode.toLowerCase())) || 
+                                      (rawSku && existingSkus.has(rawSku.toLowerCase()));
+
+                        // Raw Row Data für 100% Werterhaltung aller Originalspalten
+                        const rawDataObj = {};
+                        headers.forEach((h, hIdx) => {
+                            if (row[hIdx] !== undefined && row[hIdx] !== '') {
+                                rawDataObj[h] = row[hIdx];
+                            }
+                        });
+
+                        batchResults.push({
+                            source_file: file.name,
+                            sheet_name: sheetName,
+                            name: rawName,
+                            sku: rawSku,
+                            barcode: rawBarcode,
+                            size: rawSize,
+                            color: rawColor,
+                            season: itemSeason,
+                            manufacturer,
+                            supplier,
+                            stock_quantity: qty,
+                            cost_price: costPrice,
+                            sell_price: sellPrice,
+                            order_number: orderNo,
+                            order_position: orderPos,
+                            order_date: ordDate,
+                            delivery_date: delDate,
+                            unit: 'Paar',
+                            category: 'Schuhe',
+                            description,
+                            isDuplicate: isDup,
+                            raw_data: rawDataObj
+                        });
+                        fileExtractedItems++;
+                    });
+                }
+
+                fileSummaries.push({
+                    fileName: file.name,
+                    sheetName,
+                    rowsCount: rows.length,
+                    itemsCount: fileExtractedItems,
+                    season: seasonHint || '-',
+                    format: matrixSizes ? 'Größenraster-Matrix' : 'Zeilenbasiert'
+                });
+            }
         }
 
-        if (!rawName && !rawSku && !rawBarcode) {
-            errors.push({ line: lineNum, col: 'Identifikation', error: 'Kein Name, SKU oder Barcode vorhanden', fix: 'Zeile wird ignoriert.' });
-            return;
-        }
+        // Save into global state
+        STATE.batchImportState = {
+            items: batchResults,
+            fileSummaries,
+            formatErrors,
+            totalRows: totalRowsFound,
+            totalSheets: totalSheetsProcessed,
+            filesCount: files.length
+        };
 
-        const category = mapping.category !== -1 && mapping.category !== undefined ? (String(row[mapping.category] || '').trim() || 'Schuhe') : 'Schuhe';
-        const costPrice = mapping.cost_price !== -1 && mapping.cost_price !== undefined ? parseGermanNumber(row[mapping.cost_price], 0) : 0;
-        const sellPrice = mapping.sell_price !== -1 && mapping.sell_price !== undefined ? parseGermanNumber(row[mapping.sell_price], 0) : 0;
-        const stockQuantity = mapping.stock_quantity !== -1 && mapping.stock_quantity !== undefined ? Math.max(1, Math.round(parseGermanNumber(row[mapping.stock_quantity], 1))) : 1;
-        const minStock = mapping.min_stock !== -1 && mapping.min_stock !== undefined ? Math.round(parseGermanNumber(row[mapping.min_stock], 3)) : 3;
-        const manufacturer = mapping.manufacturer !== -1 && mapping.manufacturer !== undefined ? String(row[mapping.manufacturer] || '').trim() : '';
-        const supplier = mapping.supplier !== -1 && mapping.supplier !== undefined ? String(row[mapping.supplier] || '').trim() : '';
-        const storageLocation = mapping.storage_location !== -1 && mapping.storage_location !== undefined ? String(row[mapping.storage_location] || '').trim() : '';
-        const taxRate = mapping.tax_rate !== -1 && mapping.tax_rate !== undefined ? Math.round(parseGermanNumber(row[mapping.tax_rate], 19)) : 19;
-        const unit = mapping.unit !== -1 && mapping.unit !== undefined ? (String(row[mapping.unit] || '').trim() || 'Paar') : 'Paar';
-        
-        // Build rich description preserving size, color, order number, delivery date
-        const descParts = [];
-        if (mapping.description !== -1 && mapping.description !== undefined && row[mapping.description]) {
-            descParts.push(String(row[mapping.description]).trim());
-        }
-        if (rawSize) descParts.push(`Größe: ${rawSize}`);
-        if (rawColor) descParts.push(`Farbe: ${rawColor}`);
-        if (mapping.order_number !== -1 && mapping.order_number !== undefined && row[mapping.order_number]) {
-            descParts.push(`Auftrags-Nr.: ${row[mapping.order_number]}`);
-        }
-        if (mapping.delivery_date !== -1 && mapping.delivery_date !== undefined && row[mapping.delivery_date]) {
-            descParts.push(`Liefertermin: ${row[mapping.delivery_date]}`);
-        }
-        const description = descParts.join(' | ');
+        // Render UI
+        renderBatchAnalysisPreview();
 
-        // Duplicate check
-        const isDuplicate = (rawBarcode && existingBarcodes.has(rawBarcode.toLowerCase())) || 
-                            (rawSku && existingSkus.has(rawSku.toLowerCase()));
-        if (isDuplicate) duplicateCount++;
+    } catch (err) {
+        console.error('Fehler bei der Batch-Analyse:', err);
+        showToast('Fehler bei der Analyse der Dateien: ' + err.message, 'error');
+        resetCsvImport();
+    } finally {
+        document.getElementById('batchAnalysisSpinner').classList.add('hidden');
+    }
+}
 
-        validItems.push({
-            name: rawName,
-            barcode: rawBarcode,
-            sku: rawSku,
-            category,
-            cost_price: costPrice,
-            sell_price: sellPrice,
-            stock_quantity: stockQuantity,
-            min_stock: minStock,
-            manufacturer,
-            supplier,
-            storage_location: storageLocation,
-            tax_rate: taxRate,
-            unit,
-            description,
-            size: rawSize,
-            color: rawColor,
-            isDuplicate
-        });
-    });
+function renderBatchAnalysisPreview() {
+    const state = STATE.batchImportState;
+    if (!state) return;
 
-    STATE.csvImportState.validRows = validItems;
-    STATE.csvImportState.invalidRows = errors;
+    const items = state.items;
+    const newItemsCount = items.filter(i => !i.isDuplicate).length;
+    const dupItemsCount = items.filter(i => i.isDuplicate).length;
 
-    // Render Step 3 summary
-    const summaryEl = document.getElementById('csvValidationSummary');
-    if (summaryEl) {
-        let html = `
-            <div class="grid grid-cols-3 gap-3 text-center my-2">
-                <div class="bg-emerald-50 border border-emerald-200 rounded-2xl p-3 shadow-xs">
-                    <div class="text-[11px] text-emerald-800 font-bold uppercase">Bereit zum Import</div>
-                    <div class="text-2xl font-black text-emerald-700">${validItems.length}</div>
-                </div>
-                <div class="bg-amber-50 border border-amber-200 rounded-2xl p-3 shadow-xs">
-                    <div class="text-[11px] text-amber-800 font-bold uppercase">Bereits im System</div>
-                    <div class="text-2xl font-black text-amber-700">${duplicateCount}</div>
-                </div>
-                <div class="bg-slate-50 border border-slate-200 rounded-2xl p-3 shadow-xs">
-                    <div class="text-[11px] text-slate-600 font-bold uppercase">Fehlerhaft / Ignoriert</div>
-                    <div class="text-2xl font-black ${errors.length > 0 ? 'text-rose-600' : 'text-slate-700'}">${errors.length}</div>
-                </div>
+    // Render KPI Grid
+    const kpiGrid = document.getElementById('batchKpiGrid');
+    if (kpiGrid) {
+        kpiGrid.innerHTML = `
+            <div class="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700">
+                <div class="text-[10px] text-slate-400 font-bold uppercase">Dateien</div>
+                <div class="text-xl font-black text-white">${state.filesCount}</div>
+            </div>
+            <div class="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700">
+                <div class="text-[10px] text-slate-400 font-bold uppercase">Blätter</div>
+                <div class="text-xl font-black text-white">${state.totalSheets}</div>
+            </div>
+            <div class="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700">
+                <div class="text-[10px] text-slate-400 font-bold uppercase">Gelesen</div>
+                <div class="text-xl font-black text-white">${state.totalRows}</div>
+            </div>
+            <div class="bg-emerald-950/60 p-2.5 rounded-xl border border-emerald-500/40">
+                <div class="text-[10px] text-emerald-300 font-bold uppercase">Neue Artikel</div>
+                <div class="text-xl font-black text-emerald-400">${newItemsCount}</div>
+            </div>
+            <div class="bg-amber-950/60 p-2.5 rounded-xl border border-amber-500/40">
+                <div class="text-[10px] text-amber-300 font-bold uppercase">Historie / Dupl.</div>
+                <div class="text-xl font-black text-amber-400">${dupItemsCount}</div>
+            </div>
+            <div class="${state.formatErrors.length > 0 ? 'bg-rose-950/60 border-rose-500/40' : 'bg-slate-800/80 border-slate-700'} p-2.5 rounded-xl border">
+                <div class="text-[10px] ${state.formatErrors.length > 0 ? 'text-rose-300' : 'text-slate-400'} font-bold uppercase">Fehler</div>
+                <div class="text-xl font-black ${state.formatErrors.length > 0 ? 'text-rose-400' : 'text-slate-300'}">${state.formatErrors.length}</div>
             </div>
         `;
-
-        // Add a preview table of prepared items
-        if (validItems.length > 0) {
-            html += `
-                <div class="mt-3 border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-xs">
-                    <div class="bg-slate-50 px-3 py-2 text-xs font-bold text-slate-800 border-b border-slate-200 flex items-center justify-between">
-                        <span>Vorschau der aufbereiteten Artikel (erste 5 Zeilen):</span>
-                        <span class="text-[11px] text-slate-500 font-normal">Werte werden exakt übernommen</span>
-                    </div>
-                    <div class="max-h-36 overflow-x-auto">
-                        <table class="w-full text-left text-xs">
-                            <thead class="bg-slate-100 text-slate-600 font-bold text-[11px]">
-                                <tr>
-                                    <th class="py-1.5 px-3">Artikelname</th>
-                                    <th class="py-1.5 px-3">Artikelnr. (SKU)</th>
-                                    <th class="py-1.5 px-3">EAN / Barcode</th>
-                                    <th class="py-1.5 px-3">Größe</th>
-                                    <th class="py-1.5 px-3">Farbe</th>
-                                    <th class="py-1.5 px-3">Menge</th>
-                                    <th class="py-1.5 px-3">EK (€)</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-100 text-slate-700">
-                                ${validItems.slice(0, 5).map(item => `
-                                    <tr class="hover:bg-slate-50">
-                                        <td class="py-1.5 px-3 font-semibold truncate max-w-[150px]">${escapeHtml(item.name)}</td>
-                                        <td class="py-1.5 px-3 font-mono font-bold text-teal-700">${escapeHtml(item.sku || '-')}</td>
-                                        <td class="py-1.5 px-3 font-mono">${escapeHtml(item.barcode || '-')}</td>
-                                        <td class="py-1.5 px-3 font-bold text-slate-900">${escapeHtml(item.size || '-')}</td>
-                                        <td class="py-1.5 px-3">${escapeHtml(item.color || '-')}</td>
-                                        <td class="py-1.5 px-3 font-bold text-emerald-700">${item.stock_quantity} ${escapeHtml(item.unit)}</td>
-                                        <td class="py-1.5 px-3 font-semibold">${formatCurrency(item.cost_price)}</td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            `;
-        }
-
-        if (errors.length > 0) {
-            html += `
-                <div class="mt-3 border border-rose-200 rounded-xl overflow-hidden">
-                    <div class="bg-rose-50 px-3 py-2 text-xs font-bold text-rose-800 flex items-center gap-1.5">
-                        <i data-lucide="alert-triangle" class="w-4 h-4"></i>
-                        Gefundene Formatfehler (diese Zeilen werden übersprungen):
-                    </div>
-                    <div class="max-h-32 overflow-y-auto">
-                        <table class="w-full text-left text-xs">
-                            <thead class="bg-slate-100 text-slate-500 font-bold">
-                                <tr>
-                                    <th class="py-1.5 px-3">Zeile</th>
-                                    <th class="py-1.5 px-3">Spalte</th>
-                                    <th class="py-1.5 px-3">Fehler</th>
-                                    <th class="py-1.5 px-3">Lösung</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-100 text-slate-700">
-                                ${errors.slice(0, 10).map(e => `
-                                    <tr>
-                                        <td class="py-1.5 px-3 font-mono font-bold">${e.line}</td>
-                                        <td class="py-1.5 px-3 font-semibold">${escapeHtml(e.col)}</td>
-                                        <td class="py-1.5 px-3 text-rose-600">${escapeHtml(e.error)}</td>
-                                        <td class="py-1.5 px-3 text-slate-500">${escapeHtml(e.fix)}</td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            `;
-        }
-
-        summaryEl.innerHTML = html;
-        if (window.lucide) lucide.createIcons();
     }
 
-    document.getElementById('csvStep2').classList.add('hidden');
-    document.getElementById('csvStep3').classList.remove('hidden');
+    // Render Files List Container
+    const filesContainer = document.getElementById('batchFilesListContainer');
+    const badgeCount = document.getElementById('batchFileCountBadge');
+    if (badgeCount) badgeCount.textContent = `${state.fileSummaries.length} Tabellenblätter aus ${state.filesCount} Datei(en)`;
 
-    document.getElementById('importStepBadge2').className = 'flex items-center gap-1.5 text-slate-400';
-    document.getElementById('importStepBadge3').className = 'flex items-center gap-1.5 text-teal-600 font-bold';
+    if (filesContainer) {
+        filesContainer.innerHTML = state.fileSummaries.map(fs => `
+            <div class="flex items-center justify-between p-2 bg-white rounded-xl border border-slate-200 text-xs shadow-2xs">
+                <div class="flex items-center gap-2.5 min-w-0">
+                    <span class="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-xs">✓</span>
+                    <div class="truncate">
+                        <span class="font-bold text-slate-900">${escapeHtml(fs.fileName)}</span>
+                        <span class="text-[11px] text-slate-500 ml-1.5">(Blatt: "${escapeHtml(fs.sheetName)}")</span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 flex-shrink-0 text-[11px]">
+                    <span class="px-2 py-0.5 bg-slate-100 rounded text-slate-600 font-medium">${fs.format}</span>
+                    <span class="px-2 py-0.5 bg-teal-50 text-teal-700 font-bold rounded">${fs.itemsCount} Positionen</span>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // Render Preview Table (first 8 items)
+    const table = document.getElementById('csvPreviewTable');
+    if (table) {
+        table.innerHTML = `
+            <thead class="bg-slate-100 text-slate-700 font-bold text-[11px] border-b border-slate-200">
+                <tr>
+                    <th class="py-2 px-3">Artikelname</th>
+                    <th class="py-2 px-3">Artikelnr. (SKU)</th>
+                    <th class="py-2 px-3">EAN / Barcode</th>
+                    <th class="py-2 px-3">Größe</th>
+                    <th class="py-2 px-3">Farbe</th>
+                    <th class="py-2 px-3">Saison</th>
+                    <th class="py-2 px-3">Auftrag</th>
+                    <th class="py-2 px-3">Menge</th>
+                    <th class="py-2 px-3">EK (€)</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 text-slate-700">
+                ${items.slice(0, 8).map(item => `
+                    <tr class="hover:bg-slate-50">
+                        <td class="py-1.5 px-3 font-semibold truncate max-w-[160px]">${escapeHtml(item.name)}</td>
+                        <td class="py-1.5 px-3 font-mono font-bold text-teal-700">${escapeHtml(item.sku || '-')}</td>
+                        <td class="py-1.5 px-3 font-mono text-slate-600">${escapeHtml(item.barcode || '-')}</td>
+                        <td class="py-1.5 px-3 font-bold text-slate-900">${escapeHtml(item.size || '-')}</td>
+                        <td class="py-1.5 px-3">${escapeHtml(item.color || '-')}</td>
+                        <td class="py-1.5 px-3 font-semibold text-slate-600">${escapeHtml(item.season || '-')}</td>
+                        <td class="py-1.5 px-3 font-mono text-slate-600">${escapeHtml(item.order_number || '-')}</td>
+                        <td class="py-1.5 px-3 font-bold text-emerald-700">${item.stock_quantity} ${escapeHtml(item.unit)}</td>
+                        <td class="py-1.5 px-3 font-semibold text-slate-800">${formatCurrency(item.cost_price)}</td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        `;
+    }
+
+    // Render Errors if any
+    const errContainer = document.getElementById('batchErrorsContainer');
+    const errList = document.getElementById('batchErrorsList');
+    if (errContainer && errList) {
+        if (state.formatErrors.length > 0) {
+            errContainer.classList.remove('hidden');
+            errList.innerHTML = state.formatErrors.map(e => `
+                <div class="text-xs text-rose-700 flex items-center justify-between py-1 border-b border-rose-100">
+                    <span><strong>${escapeHtml(e.file)}</strong> (Blatt: ${escapeHtml(e.sheet)}, Zeile ${e.line}): ${escapeHtml(e.error)}</span>
+                    <span class="text-[10px] text-slate-500">Wird übersprungen</span>
+                </div>
+            `).join('');
+        } else {
+            errContainer.classList.add('hidden');
+        }
+    }
+
+    // Update Button Text
+    const btnText = document.getElementById('csvExecuteImportBtnText');
+    if (btnText) {
+        btnText.textContent = `Alle ${items.length} Positionen aus ${state.filesCount} Datei(en) jetzt importieren (JA)`;
+    }
+
+    document.getElementById('csvPreviewSection').classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
 }
 
-function backToCsvStep2() {
-    document.getElementById('csvStep3').classList.add('hidden');
-    document.getElementById('csvStep2').classList.remove('hidden');
-    document.getElementById('importStepBadge2').className = 'flex items-center gap-1.5 text-teal-600 font-bold';
-    document.getElementById('importStepBadge3').className = 'flex items-center gap-1.5 text-slate-400';
-}
-
-async function executeCsvImport() {
-    const items = STATE.csvImportState.validRows;
-    if (!items || items.length === 0) {
+async function executeBatchImport() {
+    const state = STATE.batchImportState;
+    if (!state || !state.items || state.items.length === 0) {
         showToast('Keine gültigen Datensätze zum Importieren vorhanden.', 'error');
         return;
     }
@@ -2860,25 +2835,96 @@ async function executeCsvImport() {
     const btn = document.getElementById('csvExecuteImportBtn');
     const originalText = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = '<span class="animate-spin inline-block mr-1">↻</span> Importiere...';
+    btn.innerHTML = '<span class="animate-spin inline-block mr-1">↻</span> Importiere in zentrale Datenbank...';
 
     try {
-        const result = await dataService.importProductsCsv(items, duplicateStrategy);
+        const payload = {
+            items: state.items,
+            fileSummaries: state.fileSummaries,
+            duplicateStrategy
+        };
+
+        const result = await dataService.batchImportProducts(payload, duplicateStrategy);
         closeModal('csvImportModal');
-        const countCreated = result.imported || result.created || 0;
-        const countUpdated = result.updated || 0;
-        const countSkipped = result.skipped || 0;
-        showToast(`Import erfolgreich: ${countCreated} neu angelegt, ${countUpdated} aktualisiert, ${countSkipped} übersprungen.`, 'success');
+
+        const newCount = result.newCount || 0;
+        const updatedCount = result.updatedCount || 0;
+        const ordersCount = result.ordersCount || state.items.length;
+
+        showToast(`Import erfolgreich: ${newCount} neu angelegt, ${updatedCount} aktualisiert, ${ordersCount} Historien-Einträge gesichert!`, 'success');
         resetCsvImport();
         switchTab('products');
         renderProductsTable();
     } catch (err) {
+        console.error('Fehler beim Ausführen des Batch-Imports:', err);
         showToast('Fehler beim Import: ' + err.message, 'error');
     } finally {
         btn.disabled = false;
         btn.innerHTML = originalText;
     }
 }
+
+function resetCsvImport() {
+    STATE.batchImportState = null;
+    const fileInput = document.getElementById('csvFileInput');
+    if (fileInput) fileInput.value = '';
+    const dropZone = document.getElementById('csvDropZone');
+    if (dropZone) dropZone.classList.remove('hidden');
+    const previewSection = document.getElementById('csvPreviewSection');
+    if (previewSection) previewSection.classList.add('hidden');
+    const spinner = document.getElementById('batchAnalysisSpinner');
+    if (spinner) spinner.classList.add('hidden');
+}
+
+// Hilfsfunktion: Lädt und zeigt die lückenlose Bestellhistorie im Artikel-Modal an
+async function loadProductOrderHistory(productId) {
+    const section = document.getElementById('productOrderHistorySection');
+    const tableBody = document.getElementById('productOrderHistoryTableBody');
+    const countBadge = document.getElementById('productOrderHistoryCount');
+    if (!section || !tableBody) return;
+
+    if (!productId) {
+        section.classList.add('hidden');
+        return;
+    }
+
+    try {
+        const res = await dataService.getProductOrders(productId);
+        const orders = (res && res.orders) ? res.orders : [];
+
+        if (orders.length === 0) {
+            section.classList.add('hidden');
+            return;
+        }
+
+        section.classList.remove('hidden');
+        if (countBadge) countBadge.textContent = `${orders.length} Bestellung(en)`;
+
+        tableBody.innerHTML = orders.map(ord => `
+            <tr class="hover:bg-slate-100/60 transition">
+                <td class="py-1.5 px-3 font-semibold text-slate-800">
+                    <div>${escapeHtml(ord.order_date || ord.created_at?.slice(0, 10) || '-')}</div>
+                    ${ord.season ? `<span class="inline-block px-1.5 py-0.2 bg-teal-100 text-teal-800 rounded text-[9px] font-bold">${escapeHtml(ord.season)}</span>` : ''}
+                </td>
+                <td class="py-1.5 px-3 font-mono text-slate-700">
+                    ${escapeHtml(ord.order_number || '-')}${ord.order_position ? ` / Pos. ${escapeHtml(ord.order_position)}` : ''}
+                </td>
+                <td class="py-1.5 px-3 font-mono text-[11px] text-slate-500 truncate max-w-[120px]">${escapeHtml(ord.source_file || '-')}</td>
+                <td class="py-1.5 px-3 font-bold text-slate-900">${escapeHtml(ord.size || '-')}</td>
+                <td class="py-1.5 px-3 text-slate-700">${escapeHtml(ord.color || '-')}</td>
+                <td class="py-1.5 px-3 font-extrabold text-emerald-700 text-right">${ord.ordered_quantity} Paar</td>
+                <td class="py-1.5 px-3 font-bold text-slate-900 text-right">${formatCurrency((ord.cost_price_cents || 0) / 100)}</td>
+            </tr>
+        `).join('');
+        if (window.lucide) lucide.createIcons();
+    } catch (err) {
+        console.warn('Could not load product order history:', err.message);
+        section.classList.add('hidden');
+    }
+}
+
+// Hook in openProductModal to load order history
+const originalOpenProductModal = window.openProductModal || null;
 
 // CSV EXPORT MIT UTF-8 BOM & FORMEL-INJEKTIONS-SCHUTZ
 // =============================================================================
@@ -3708,6 +3754,7 @@ function openModal(modalId, isEdit = false) {
             document.getElementById('storeForm').reset();
         } else if (modalId === 'productModal') {
             document.getElementById('productModalTitle').textContent = 'Neuen Artikel anlegen';
+    loadProductOrderHistory(null);
             document.getElementById('prodEditId').value = '';
             document.getElementById('productForm').reset();
         }

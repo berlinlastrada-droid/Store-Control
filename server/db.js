@@ -311,6 +311,50 @@ function migrateProductsAndStockSchema() {
         if (!columns.includes('image_url')) {
             db.exec('ALTER TABLE products ADD COLUMN image_url TEXT;');
         }
+        if (!columns.includes('size')) {
+            db.exec('ALTER TABLE products ADD COLUMN size TEXT;');
+        }
+        if (!columns.includes('color')) {
+            db.exec('ALTER TABLE products ADD COLUMN color TEXT;');
+        }
+        if (!columns.includes('season')) {
+            db.exec('ALTER TABLE products ADD COLUMN season TEXT;');
+        }
+        if (!columns.includes('attributes_json')) {
+            db.exec('ALTER TABLE products ADD COLUMN attributes_json TEXT;');
+        }
+
+        // Tabelle für lückenlose Bestell- und Lieferhistorie (Warenwirtschaft)
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS product_orders (
+                id TEXT PRIMARY KEY,
+                product_id TEXT REFERENCES products(id),
+                source_file TEXT,
+                order_number TEXT,
+                order_position TEXT,
+                season TEXT,
+                supplier TEXT,
+                manufacturer TEXT,
+                sku TEXT,
+                barcode TEXT,
+                size TEXT,
+                color TEXT,
+                ordered_quantity INTEGER NOT NULL DEFAULT 0,
+                delivered_quantity INTEGER NOT NULL DEFAULT 0,
+                cost_price_cents INTEGER NOT NULL DEFAULT 0,
+                sell_price_cents INTEGER NOT NULL DEFAULT 0,
+                order_date TEXT,
+                delivery_date TEXT,
+                invoice_date TEXT,
+                raw_data_json TEXT,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_product_orders_prod ON product_orders(product_id);
+            CREATE INDEX IF NOT EXISTS idx_product_orders_sku ON product_orders(sku);
+            CREATE INDEX IF NOT EXISTS idx_product_orders_barcode ON product_orders(barcode);
+            CREATE INDEX IF NOT EXISTS idx_product_orders_order ON product_orders(order_number);
+            CREATE INDEX IF NOT EXISTS idx_product_orders_created ON product_orders(created_at);
+        `);
 
         // Create stock_movements table
         db.exec(`

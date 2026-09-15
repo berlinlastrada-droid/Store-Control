@@ -1301,6 +1301,254 @@ router.get('/stock-movements', requireAuth, (req, res) => {
 });
 
 // 8. Bulk CSV Import with Duplicate Strategy (update, skip, create)
+// BATCH MULTI-FILE IMPORT & ORDER HISTORY
+router.post('/products/batch-import', requireAuth, requireRole(['admin', 'manager']), (req, res) => {
+    try {
+        const { items, duplicateStrategy = 'update', fileSummaries = [] } = req.body;
+        if (!items || !Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({ error: 'Keine Datensätze übermittelt' });
+        }
+
+        // 1. Automatisches Sicherheits-Backup vor jedem Batch-Import
+        const nowIso = new Date().toISOString().replace(/[:.]/g, '-');
+        const backupDir = path.join(__dirname, '..', '..', 'data', 'backups');
+        if (!fs.existsSync(backupDir)) {
+            fs.mkdirSync(backupDir, { recursive: true });
+        }
+        const backupPath = path.join(backupDir, `storecontrol_backup_before_batch_import_${nowIso}.db`);
+        const dbFile = path.join(__dirname, '..', '..', 'data', 'storecontrol.db');
+        if (fs.existsSync(dbFile)) {
+            try {
+                fs.copyFileSync(dbFile, backupPath);
+            } catch (bErr) {
+                console.warn('[BatchImport] Warning creating backup:', bErr.message);
+            }
+        }
+
+        const now = new Date().toISOString();
+        let newCount = 0;
+        let updatedCount = 0;
+        let skippedCount = 0;
+        let ordersCount = 0;
+        const errors = [];
+
+        // Prepared statements
+        const findByBarcode = db.prepare("SELECT * FROM products WHERE barcode = ? AND barcode IS NOT NULL AND barcode != '' AND is_deleted = 0 LIMIT 1");
+        const findBySkuColorSize = db.prepare("SELECT * FROM products WHERE sku = ? AND (color = ? OR color IS NULL OR ? = '') AND (size = ? OR size IS NULL OR ? = '') AND is_deleted = 0 LIMIT 1");
+        const findBySku = db.prepare("SELECT * FROM products WHERE sku = ? AND sku IS NOT NULL AND sku != '' AND is_deleted = 0 LIMIT 1");
+
+        const insertProductStmt = db.prepare(`
+            INSERT INTO products (
+                id, store_id, name, barcode, sku, category,
+                manufacturer, supplier, storage_location, tax_rate, description, image_url,
+                cost_price_cents, sell_price_cents, stock_quantity, min_stock, unit,
+                size, color, season, attributes_json,
+                is_deleted, created_at, updated_at, version
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?,
+                ?, ?, ?, ?,
+                0, ?, ?, 1
+            )
+        `);
+
+        const updateProductStmt = db.prepare(`
+            UPDATE products SET
+                name = COALESCE(?, name),
+                category = COALESCE(?, category),
+                manufacturer = COALESCE(?, manufacturer),
+                supplier = COALESCE(?, supplier),
+                storage_location = COALESCE(?, storage_location),
+                tax_rate = COALESCE(?, tax_rate),
+                description = COALESCE(?, description),
+                cost_price_cents = CASE WHEN ? > 0 THEN ? ELSE cost_price_cents END,
+                sell_price_cents = CASE WHEN ? > 0 THEN ? ELSE sell_price_cents END,
+                stock_quantity = stock_quantity + ?,
+                size = COALESCE(?, size),
+                color = COALESCE(?, color),
+                season = COALESCE(?, season),
+                updated_at = ?,
+                version = version + 1
+            WHERE id = ?
+        `);
+
+        const insertOrderStmt = db.prepare(`
+            INSERT INTO product_orders (
+                id, product_id, source_file, order_number, order_position, season,
+                supplier, manufacturer, sku, barcode, size, color,
+                ordered_quantity, delivered_quantity, cost_price_cents, sell_price_cents,
+                order_date, delivery_date, invoice_date, raw_data_json, created_at
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?,
+                ?, ?, ?, ?, ?
+            )
+        `);
+
+        const runBatchTransaction = db.transaction(() => {
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i];
+                const rowNum = i + 1;
+
+                const name = String(item.name || '').trim();
+                const sku = item.sku ? String(item.sku).trim() : null;
+                const barcode = item.barcode ? String(item.barcode).trim() : null;
+                const size = item.size ? String(item.size).trim() : null;
+                const color = item.color ? String(item.color).trim() : null;
+                const season = item.season ? String(item.season).trim() : null;
+                const sourceFile = item.source_file || item.sourceFile || '';
+                const orderNumber = item.order_number || item.orderNumber || '';
+                const orderPosition = item.order_position || item.orderPosition || '';
+                const orderDate = item.order_date || item.orderDate || '';
+                const deliveryDate = item.delivery_date || item.deliveryDate || '';
+                const invoiceDate = item.invoice_date || item.invoiceDate || '';
+
+                if (!name && !sku && !barcode) {
+                    errors.push({ row: rowNum, error: 'Kein Artikelname, SKU oder Barcode' });
+                    continue;
+                }
+
+                const category = item.category ? String(item.category).trim() : 'Schuhe';
+                const manufacturer = item.manufacturer ? String(item.manufacturer).trim() : '';
+                const supplier = item.supplier ? String(item.supplier).trim() : '';
+                const storageLocation = item.storage_location || item.storageLocation || '';
+                const taxRate = item.tax_rate !== undefined ? parseFloat(item.tax_rate) : 19.0;
+                const description = item.description || '';
+                const imageUrl = item.image_url || item.imageUrl || '';
+                const unit = item.unit ? String(item.unit).trim() : 'Paar';
+
+                const costPriceRaw = item.cost_price !== undefined ? item.cost_price : (item.costPrice !== undefined ? item.costPrice : 0);
+                const sellPriceRaw = item.sell_price !== undefined ? item.sell_price : (item.sellPrice !== undefined ? item.sellPrice : 0);
+                const qtyRaw = item.stock_quantity !== undefined ? item.stock_quantity : (item.quantity !== undefined ? item.quantity : 1);
+                const minStockRaw = item.min_stock !== undefined ? item.min_stock : 3;
+
+                const costCents = Math.round((parseFloat(costPriceRaw) || 0) * 100);
+                const sellCents = Math.round((parseFloat(sellPriceRaw) || 0) * 100);
+                const qty = Math.max(1, parseInt(qtyRaw) || 1);
+                const minStock = parseInt(minStockRaw) || 3;
+
+                // 1. Suche nach existierendem Artikel
+                let existing = null;
+                if (barcode) existing = findByBarcode.get(barcode);
+                if (!existing && sku) existing = findBySkuColorSize.get(sku, color || '', color || '', size || '', size || '');
+                if (!existing && sku && !size && !color) existing = findBySku.get(sku);
+
+                let targetProductId = null;
+
+                if (existing) {
+                    if (duplicateStrategy === 'skip') {
+                        skippedCount++;
+                        targetProductId = existing.id;
+                    } else if (duplicateStrategy === 'update') {
+                        updateProductStmt.run(
+                            name || existing.name,
+                            category || existing.category,
+                            manufacturer || existing.manufacturer,
+                            supplier || existing.supplier,
+                            storageLocation || existing.storage_location,
+                            taxRate,
+                            description || existing.description,
+                            costCents, costCents,
+                            sellCents, sellCents,
+                            qty,
+                            size || existing.size,
+                            color || existing.color,
+                            season || existing.season,
+                            now,
+                            existing.id
+                        );
+                        updatedCount++;
+                        targetProductId = existing.id;
+                    } else {
+                        // Strategy 'create': Neuanlage
+                        const newId = `prod_${Date.now()}_${Math.random().toString(36).substr(2, 6)}_${i}`;
+                        insertProductStmt.run(
+                            newId, item.storeId || null, name, barcode, sku, category,
+                            manufacturer, supplier, storageLocation, taxRate, description, imageUrl,
+                            costCents, sellCents, qty, minStock, unit,
+                            size, color, season, JSON.stringify(item.raw_attributes || {}),
+                            now, now
+                        );
+                        newCount++;
+                        targetProductId = newId;
+                    }
+                } else {
+                    // Neuer Artikel
+                    const newId = `prod_${Date.now()}_${Math.random().toString(36).substr(2, 6)}_${i}`;
+                    insertProductStmt.run(
+                        newId, item.storeId || null, name, barcode, sku, category,
+                        manufacturer, supplier, storageLocation, taxRate, description, imageUrl,
+                        costCents, sellCents, qty, minStock, unit,
+                        size, color, season, JSON.stringify(item.raw_attributes || {}),
+                        now, now
+                    );
+                    newCount++;
+                    targetProductId = newId;
+                }
+
+                // 2. Immer Eintrag in Bestellhistorie anlegen (Lückenlose Historie)
+                const orderId = `ord_${Date.now()}_${Math.random().toString(36).substr(2, 6)}_${i}`;
+                insertOrderStmt.run(
+                    orderId, targetProductId, sourceFile, orderNumber, orderPosition, season,
+                    supplier, manufacturer, sku, barcode, size, color,
+                    qty, qty, costCents, sellCents,
+                    orderDate, deliveryDate, invoiceDate,
+                    JSON.stringify(item.raw_data || {}),
+                    now
+                );
+                ordersCount++;
+            }
+        });
+
+        runBatchTransaction();
+
+        logAudit('products', 'batch_import', 'BATCH_IMPORT', req.user.username, null, {
+            filesCount: fileSummaries.length,
+            totalItems: items.length,
+            newCount,
+            updatedCount,
+            skippedCount,
+            ordersCount,
+            backupPath
+        }, req.ip);
+
+        broadcastEvent('PRODUCT_CHANGED', { action: 'BATCH_IMPORT', count: newCount + updatedCount });
+
+        res.json({
+            success: true,
+            newCount,
+            updatedCount,
+            skippedCount,
+            ordersCount,
+            totalItems: items.length,
+            filesCount: fileSummaries.length,
+            backupPath,
+            message: `Batch-Import erfolgreich: ${newCount} neue Artikel, ${updatedCount} aktualisiert, ${ordersCount} Historien-Einträge gesichert.`
+        });
+    } catch (err) {
+        console.error('Batch-Import error:', err);
+        res.status(500).json({ error: 'Fehler beim Batch-Import', details: err.message });
+    }
+});
+
+// GET ORDER HISTORY FOR PRODUCT
+router.get('/products/:id/orders', requireAuth, (req, res) => {
+    try {
+        const { id } = req.params;
+        const orders = db.prepare(`
+            SELECT * FROM product_orders
+            WHERE product_id = ? OR (sku = (SELECT sku FROM products WHERE id = ?) AND sku IS NOT NULL)
+            ORDER BY created_at DESC, order_date DESC
+        `).all(id, id);
+        res.json({ success: true, orders });
+    } catch (err) {
+        res.status(500).json({ error: 'Fehler beim Laden der Bestellhistorie', details: err.message });
+    }
+});
+
+
 router.post('/products/import-csv', requireAuth, requireRole(['admin', 'manager']), (req, res) => {
     try {
         const { items, duplicateStrategy = 'update' } = req.body;
