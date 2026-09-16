@@ -1569,6 +1569,21 @@ function updateModalMarginCalculation() {
 }
 
 function openProductModal(clean = true) {
+    if (clean) {
+        const form = document.getElementById('productForm');
+        if (form) form.reset();
+        const editId = document.getElementById('prodEditId');
+        if (editId) editId.value = '';
+        const title = document.getElementById('productModalTitle');
+        if (title) title.textContent = 'Neuen Artikel anlegen';
+        if (document.getElementById('prodSize')) document.getElementById('prodSize').value = '';
+        if (document.getElementById('prodColor')) document.getElementById('prodColor').value = '';
+        if (document.getElementById('prodSeason')) document.getElementById('prodSeason').value = '';
+        if (document.getElementById('prodImageUrl')) document.getElementById('prodImageUrl').value = '';
+        updateProductImagePreview('');
+        loadProductOrderHistory(null);
+        updateModalMarginCalculation();
+    }
     openModal('productModal', !clean);
 }
 
@@ -1719,9 +1734,12 @@ function renderProductsTable() {
                             <div class="font-bold text-slate-900 flex items-center flex-wrap gap-1">
                                 ${escapeHtml(p.name)} ${pendingBadge}
                             </div>
-                            <div class="text-[11px] text-slate-400 flex items-center gap-2">
+                            <div class="text-[11px] text-slate-400 flex items-center flex-wrap gap-2">
                                 ${p.sku ? '<span>SKU: ' + escapeHtml(p.sku) + '</span>' : ''}
                                 ${p.manufacturer ? '<span>• ' + escapeHtml(p.manufacturer) + '</span>' : ''}
+                                ${p.size ? '<span class="px-1.5 py-0.2 bg-teal-50 text-teal-800 font-bold rounded border border-teal-200">Gr. ' + escapeHtml(p.size) + '</span>' : ''}
+                                ${p.color ? '<span class="text-slate-700 font-semibold">• ' + escapeHtml(p.color) + '</span>' : ''}
+                                ${p.season ? '<span class="text-slate-400">(' + escapeHtml(p.season) + ')</span>' : ''}
                             </div>
                         </div>
                     </div>
@@ -1789,28 +1807,38 @@ async function handleProductSubmit(e) {
     const editId = document.getElementById('prodEditId').value.trim();
     const existing = editId ? STATE.products.find(p => p.id === editId) : null;
 
-    const name = document.getElementById('prodName').value.trim() || (existing ? existing.name : '');
-    const storeId = document.getElementById('prodStoreId').value || (existing ? existing.storeId : null);
-    const barcode = document.getElementById('prodBarcode').value.trim() || (existing ? (existing.barcode || '') : '');
-    const sku = document.getElementById('prodSku').value.trim() || (existing ? (existing.sku || '') : '');
-    const category = document.getElementById('prodCategory').value.trim() || (existing ? existing.category : 'Allgemein');
-    const manufacturer = document.getElementById('prodManufacturer')?.value.trim() || (existing ? (existing.manufacturer || '') : '');
-    const supplier = document.getElementById('prodSupplier')?.value.trim() || (existing ? (existing.supplier || '') : '');
-    const storageLocation = document.getElementById('prodStorageLocation')?.value.trim() || (existing ? (existing.storageLocation || existing.storage_location || '') : '');
-    const unit = document.getElementById('prodUnit')?.value || (existing ? (existing.unit || 'Stk.') : 'Stk.');
-    const taxRate = parseInt(document.getElementById('prodTaxRate')?.value || (existing ? existing.taxRate : 19), 10);
-    const imageUrl = document.getElementById('prodImageUrl')?.value.trim() || (existing ? (existing.imageUrl || existing.image_url || '') : '');
-    const description = document.getElementById('prodDescription')?.value.trim() || (existing ? (existing.description || '') : '');
+    const name = document.getElementById('prodName') ? document.getElementById('prodName').value.trim() : (existing ? existing.name : '');
+    const storeId = document.getElementById('prodStoreId') ? (document.getElementById('prodStoreId').value || null) : (existing ? (existing.storeId || existing.store_id || null) : null);
+    const barcode = document.getElementById('prodBarcode') ? document.getElementById('prodBarcode').value.trim() : (existing ? (existing.barcode || '') : '');
+    const sku = document.getElementById('prodSku') ? document.getElementById('prodSku').value.trim() : (existing ? (existing.sku || '') : '');
+    const category = document.getElementById('prodCategory') ? document.getElementById('prodCategory').value.trim() : (existing ? existing.category : 'Allgemein');
+    
+    const size = document.getElementById('prodSize') ? document.getElementById('prodSize').value.trim() : (existing ? (existing.size || '') : '');
+    const color = document.getElementById('prodColor') ? document.getElementById('prodColor').value.trim() : (existing ? (existing.color || '') : '');
+    const season = document.getElementById('prodSeason') ? document.getElementById('prodSeason').value.trim() : (existing ? (existing.season || '') : '');
+    
+    const manufacturer = document.getElementById('prodManufacturer') ? document.getElementById('prodManufacturer').value.trim() : (existing ? (existing.manufacturer || '') : '');
+    const supplier = document.getElementById('prodSupplier') ? document.getElementById('prodSupplier').value.trim() : (existing ? (existing.supplier || '') : '');
+    const storageLocation = document.getElementById('prodStorageLocation') ? document.getElementById('prodStorageLocation').value.trim() : (existing ? (existing.storageLocation || existing.storage_location || '') : '');
+    const unit = document.getElementById('prodUnit') ? document.getElementById('prodUnit').value : (existing ? (existing.unit || 'Stk.') : 'Stk.');
+    const taxRate = document.getElementById('prodTaxRate') ? parseInt(document.getElementById('prodTaxRate').value, 10) : (existing ? (existing.taxRate !== undefined ? existing.taxRate : (existing.tax_rate !== undefined ? existing.tax_rate : 19)) : 19);
+    const imageUrl = document.getElementById('prodImageUrl') ? document.getElementById('prodImageUrl').value.trim() : (existing ? (existing.imageUrl || existing.image_url || '') : '');
+    const description = document.getElementById('prodDescription') ? document.getElementById('prodDescription').value.trim() : (existing ? (existing.description || '') : '');
 
-    const costVal = document.getElementById('prodCostPrice').value;
-    const sellVal = document.getElementById('prodSellPrice').value;
-    const stockVal = document.getElementById('prodStock').value;
-    const minVal = document.getElementById('prodMinStock').value;
+    const costVal = document.getElementById('prodCostPrice')?.value;
+    const sellVal = document.getElementById('prodSellPrice')?.value;
+    const stockVal = document.getElementById('prodStock')?.value;
+    const minVal = document.getElementById('prodMinStock')?.value;
 
-    const costPrice = (costVal !== '' && !isNaN(parseFloat(costVal))) ? parseFloat(costVal) : (existing ? existing.costPrice : 0);
-    const sellPrice = (sellVal !== '' && !isNaN(parseFloat(sellVal))) ? parseFloat(sellVal) : (existing ? existing.sellPrice : 0);
-    const stockQuantity = (stockVal !== '' && !isNaN(parseInt(stockVal))) ? parseInt(stockVal) : (existing ? existing.stockQuantity : 0);
-    const minStock = (minVal !== '' && !isNaN(parseInt(minVal))) ? parseInt(minVal) : (existing ? existing.minStock : 0);
+    const existingCost = existing ? (existing.costPrice !== undefined ? existing.costPrice : (existing.cost_price !== undefined ? existing.cost_price : 0)) : 0;
+    const existingSell = existing ? (existing.sellPrice !== undefined ? existing.sellPrice : (existing.sell_price !== undefined ? existing.sell_price : 0)) : 0;
+    const existingStock = existing ? (existing.stockQuantity !== undefined ? existing.stockQuantity : (existing.stock_quantity !== undefined ? existing.stock_quantity : 0)) : 0;
+    const existingMin = existing ? (existing.minStock !== undefined ? existing.minStock : (existing.min_stock !== undefined ? existing.min_stock : 3)) : 3;
+
+    const costPrice = (costVal !== undefined && costVal !== '' && !isNaN(parseFloat(costVal))) ? parseFloat(costVal) : existingCost;
+    const sellPrice = (sellVal !== undefined && sellVal !== '' && !isNaN(parseFloat(sellVal))) ? parseFloat(sellVal) : existingSell;
+    const stockQuantity = (stockVal !== undefined && stockVal !== '' && !isNaN(parseInt(stockVal, 10))) ? parseInt(stockVal, 10) : existingStock;
+    const minStock = (minVal !== undefined && minVal !== '' && !isNaN(parseInt(minVal, 10))) ? parseInt(minVal, 10) : existingMin;
 
     if (!name) {
         showToast('Bitte einen Artikelnamen eingeben.', 'error');
@@ -1821,24 +1849,36 @@ async function handleProductSubmit(e) {
         return;
     }
 
+    // NON-DESTRUCTIVE MERGE PAYLOAD: preserve all existing values
     const payload = {
         ...(existing || {}),
         id: editId || undefined,
         name,
         storeId,
+        store_id: storeId,
         barcode,
         sku,
         category,
         costPrice,
         sellPrice,
+        cost_price: costPrice,
+        sell_price: sellPrice,
         taxRate,
+        tax_rate: taxRate,
         stockQuantity,
+        stock_quantity: stockQuantity,
         minStock,
+        min_stock: minStock,
+        size,
+        color,
+        season,
         manufacturer,
         supplier,
         storageLocation,
+        storage_location: storageLocation,
         unit,
         imageUrl,
+        image_url: imageUrl,
         description
     };
 
@@ -1848,7 +1888,7 @@ async function handleProductSubmit(e) {
         form.reset();
         document.getElementById('prodEditId').value = '';
     } catch (err) {
-        // Formular bleibt bei Fehlern erhalten
+        console.error('Save product error:', err);
     }
 }
 
