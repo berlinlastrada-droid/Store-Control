@@ -634,6 +634,50 @@ router.delete('/expenses/:id', requireAuth, (req, res) => {
 // =============================================================================
 // PRODUCTS (Artikel, Barcodes & Lagerverwaltung)
 // =============================================================================
+// Helper to normalize and serialize complete product records for all clients
+function formatProduct(p) {
+    if (!p) return null;
+    return {
+        id: p.id,
+        storeId: p.store_id,
+        store_id: p.store_id,
+        name: p.name,
+        barcode: p.barcode || '',
+        sku: p.sku || '',
+        category: p.category || 'Allgemein',
+        costPrice: (p.cost_price_cents !== null && p.cost_price_cents !== undefined) ? p.cost_price_cents / 100 : 0,
+        sellPrice: (p.sell_price_cents !== null && p.sell_price_cents !== undefined) ? p.sell_price_cents / 100 : 0,
+        cost_price: (p.cost_price_cents !== null && p.cost_price_cents !== undefined) ? p.cost_price_cents / 100 : 0,
+        sell_price: (p.sell_price_cents !== null && p.sell_price_cents !== undefined) ? p.sell_price_cents / 100 : 0,
+        stockQuantity: p.stock_quantity !== null && p.stock_quantity !== undefined ? p.stock_quantity : 0,
+        stock_quantity: p.stock_quantity !== null && p.stock_quantity !== undefined ? p.stock_quantity : 0,
+        minStock: p.min_stock !== null && p.min_stock !== undefined ? p.min_stock : 3,
+        min_stock: p.min_stock !== null && p.min_stock !== undefined ? p.min_stock : 3,
+        unit: p.unit || 'Stück',
+        size: p.size || '',
+        color: p.color || '',
+        season: p.season || '',
+        manufacturer: p.manufacturer || '',
+        supplier: p.supplier || '',
+        storageLocation: p.storage_location || '',
+        storage_location: p.storage_location || '',
+        taxRate: p.tax_rate !== null && p.tax_rate !== undefined ? p.tax_rate : 19,
+        tax_rate: p.tax_rate !== null && p.tax_rate !== undefined ? p.tax_rate : 19,
+        imageUrl: p.image_url || '',
+        image_url: p.image_url || '',
+        description: p.description || '',
+        createdAt: p.created_at,
+        updatedAt: p.updated_at,
+        version: p.version || 1
+    };
+}
+
+router.get('/products/:id', requireAuth, (req, res) => {
+    const p = db.prepare('SELECT * FROM products WHERE id = ? AND is_deleted = 0').get(req.params.id);
+    if (!p) return res.status(404).json({ error: 'Artikel nicht gefunden.' });
+    res.json({ success: true, product: formatProduct(p) });
+});
+
 router.get('/products', requireAuth, (req, res) => {
     const { storeId, q, barcode } = req.query;
     let query = 'SELECT * FROM products WHERE is_deleted = 0';
@@ -655,33 +699,7 @@ router.get('/products', requireAuth, (req, res) => {
     query += ' ORDER BY name ASC';
     const products = db.prepare(query).all(...params);
 
-    const formatted = products.map(p => ({
-        id: p.id,
-        storeId: p.store_id,
-        name: p.name,
-        barcode: p.barcode || '',
-        sku: p.sku || '',
-        category: p.category || 'Allgemein',
-        costPrice: p.cost_price_cents / 100,
-        sellPrice: p.sell_price_cents / 100,
-        cost_price: p.cost_price_cents / 100,
-        sell_price: p.sell_price_cents / 100,
-        stockQuantity: p.stock_quantity,
-        stock_quantity: p.stock_quantity,
-        minStock: p.min_stock,
-        unit: p.unit || 'Stück',
-        size: p.size || '',
-        color: p.color || '',
-        season: p.season || '',
-        manufacturer: p.manufacturer || '',
-        supplier: p.supplier || '',
-        description: p.description || '',
-        createdAt: p.created_at,
-        updatedAt: p.updated_at,
-        version: p.version
-    }));
-
-    res.json(formatted);
+    res.json(products.map(formatProduct));
 });
 
 router.post('/products', requireAuth, requireRole(['admin', 'manager']), (req, res) => {
@@ -826,33 +844,8 @@ router.put('/products/:id', requireAuth, (req, res) => {
         req.params.id
     );
 
-    const updated = {
-        id: req.params.id,
-        storeId: storeId !== undefined ? storeId : existing.store_id,
-        name: name !== undefined ? name : existing.name,
-        barcode: barcode !== undefined ? barcode : existing.barcode,
-        sku: sku !== undefined ? sku : existing.sku,
-        category: category !== undefined ? category : existing.category,
-        costPrice: costCents / 100,
-        sellPrice: sellCents / 100,
-        cost_price: costCents / 100,
-        sell_price: sellCents / 100,
-        stockQuantity: stockQtyVal,
-        stock_quantity: stockQtyVal,
-        minStock: minStockVal,
-        unit: unit !== undefined ? unit : existing.unit,
-        size: size !== undefined ? size : existing.size,
-        color: color !== undefined ? color : existing.color,
-        season: season !== undefined ? season : existing.season,
-        manufacturer: manufacturer !== undefined ? manufacturer : existing.manufacturer,
-        supplier: supplier !== undefined ? supplier : existing.supplier,
-        storageLocation: effectiveStorage !== undefined ? effectiveStorage : existing.storage_location,
-        description: description !== undefined ? description : existing.description,
-        imageUrl: imgUrlVal,
-        image_url: imgUrlVal,
-        updatedAt: now,
-        version: newVersion
-    };
+    const updatedRow = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id);
+    const updated = formatProduct(updatedRow);
 
     logAudit('product', req.params.id, 'UPDATE', req.user.username, existing, updated, req.ip);
     broadcastEvent('PRODUCT_CHANGED', { action: 'UPDATE', product: updated });
