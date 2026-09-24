@@ -6,6 +6,11 @@ const {
     authenticateUser, 
     generateToken, 
     getPublicUser, 
+    createPairingCode, 
+    redeemPairingCode, 
+    verifyDeviceToken, 
+    listUserDevices, 
+    revokeDevice, 
     requireAuth, 
     requireRole 
 } = require('../auth');
@@ -16,6 +21,7 @@ const router = express.Router();
 // SERVER-SENT EVENTS (SSE) BROADCAST ENGINE
 // =============================================================================
 const sseClients = new Set();
+const longPollWaiters = new Set();
 
 function broadcastEvent(eventType, payload) {
     const data = JSON.stringify({ type: eventType, payload, timestamp: new Date().toISOString() });
@@ -26,9 +32,33 @@ function broadcastEvent(eventType, payload) {
             sseClients.delete(client);
         }
     }
+    for (const waiter of longPollWaiters) {
+        try {
+            clearTimeout(waiter.timer);
+            waiter.res.json({ type: eventType, payload, timestamp: new Date().toISOString() });
+        } catch (e) {}
+        longPollWaiters.delete(waiter);
+    }
 }
 
 // SSE Connection Endpoint
+router.get('/events/poll', (req, res) => {
+    const waiter = {
+        res,
+        timer: setTimeout(() => {
+            longPollWaiters.delete(waiter);
+            try {
+                res.json({ type: 'TIMEOUT' });
+            } catch (e) {}
+        }, 25000)
+    };
+    longPollWaiters.add(waiter);
+    req.on('close', () => {
+        clearTimeout(waiter.timer);
+        longPollWaiters.delete(waiter);
+    });
+});
+
 router.get('/events', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -191,6 +221,34 @@ router.post('/settings/public-url', requireAuth, async (req, res) => {
 // =============================================================================
 // AUTHENTICATION & USERS
 // =============================================================================
+router.post('/auth/pair-device', (req, res) => {
+    const { code, deviceName } = req.body;
+    if (!code) return res.status(400).json({ error: 'Kopplungscode erforderlich' });
+    const result = redeemPairingCode(code, deviceName, req.ip);
+    if (!result) return res.status(400).json({ error: 'Ungültiger oder abgelaufener Kopplungscode.' });
+    const sessionToken = generateToken(result.user);
+    res.json({
+        success: true,
+        deviceId: result.deviceId,
+        deviceToken: result.deviceToken,
+        sessionToken,
+        user: getPublicUser(result.user)
+    });
+});
+
+router.get('/auth/verify-device', (req, res) => {
+    const deviceToken = req.headers['x-device-token'] || req.query.token;
+    if (!deviceToken) return res.status(401).json({ error: 'Device Token erforderlich' });
+    const user = verifyDeviceToken(deviceToken);
+    if (!user) return res.status(401).json({ error: 'Ungültiges Gerät' });
+    const sessionToken = generateToken(user);
+    res.json({
+        success: true,
+        user: getPublicUser(user),
+        sessionToken
+    });
+});
+
 router.post('/auth/login', (req, res) => {
     const { username, password } = req.body;
     if (!username || !password) {
@@ -1182,6 +1240,157 @@ router.get('/audit-logs', requireAuth, requireRole(['admin', 'manager']), (req, 
 // =============================================================================
 // OFFLINE SYNC API (Push & Pull)
 // =============================================================================
+
+// =============================================================================
+// RECONCILE: Self-Healing Sync for Offline / Local Data
+// =============================================================================
+router.post('/sync/reconcile', requireAuth, (req, res) => {
+    const { items } = req.body;
+    if (!Array.isArray(items) || items.length === 0) {
+        return res.json({ success: true, reconciled: [] });
+    }
+
+    const reconciled = [];
+    const now = new Date().toISOString();
+
+    const processReconcile = db.transaction(() => {
+        for (const item of items) {
+            let { type, data, tempId } = item;
+            if (!data) continue;
+            const originalId = tempId || data.id;
+
+            let normalizedType = (type || '').toUpperCase().trim();
+            if (['REVENUE', 'ADD_REVENUE', 'SAVE_REVENUE'].includes(normalizedType)) normalizedType = 'CREATE_REVENUE';
+            if (['EXPENSE', 'ADD_EXPENSE', 'SAVE_EXPENSE'].includes(normalizedType)) normalizedType = 'CREATE_EXPENSE';
+            if (['PRODUCT', 'ADD_PRODUCT', 'SAVE_PRODUCT'].includes(normalizedType)) normalizedType = 'CREATE_PRODUCT';
+            if (['STORE', 'ADD_STORE', 'SAVE_STORE'].includes(normalizedType)) normalizedType = 'CREATE_STORE';
+
+            let storeId = data.storeId || data.store_id;
+            if (!storeId || !db.prepare('SELECT id FROM stores WHERE id = ?').get(storeId)) {
+                const fallbackStore = db.prepare('SELECT id FROM stores WHERE is_deleted = 0 ORDER BY created_at ASC LIMIT 1').get();
+                storeId = fallbackStore ? fallbackStore.id : storeId;
+            }
+
+            try {
+                if (normalizedType === 'CREATE_REVENUE' || normalizedType === 'UPDATE_REVENUE') {
+                    const id = data.id || originalId || ('rev_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6));
+                    const cashCents = data.cashCents !== undefined ? data.cashCents : (data.cash_cents !== undefined ? data.cash_cents : Math.round((parseFloat(data.cash) || 0) * 100));
+                    const cardCents = data.cardCents !== undefined ? data.cardCents : (data.card_cents !== undefined ? data.card_cents : Math.round((parseFloat(data.card) || 0) * 100));
+                    const totalCents = cashCents + cardCents;
+
+                    // 1. Check if ID exists
+                    let existing = db.prepare('SELECT * FROM revenues WHERE id = ?').get(id);
+
+                    // 2. Check duplicate match
+                    if (!existing && storeId && data.date) {
+                        existing = db.prepare('SELECT * FROM revenues WHERE store_id = ? AND date = ? AND cash_cents = ? AND card_cents = ? AND is_deleted = 0').get(storeId, data.date, cashCents, cardCents);
+                    }
+
+                    if (existing) {
+                        const rec = {
+                            id: existing.id,
+                            storeId: existing.store_id,
+                            date: existing.date,
+                            cash: existing.cash_cents / 100,
+                            card: existing.card_cents / 100,
+                            total: existing.total_cents / 100,
+                            note: existing.note || '',
+                            createdBy: existing.created_by,
+                            updatedBy: existing.updated_by,
+                            createdAt: existing.created_at,
+                            updatedAt: existing.updated_at,
+                            version: existing.version
+                        };
+                        reconciled.push({ originalId, serverId: existing.id, record: rec });
+                        continue;
+                    }
+
+                    const createdAt = data.createdAt || now;
+                    db.prepare(`
+                        INSERT INTO revenues (id, store_id, date, cash_cents, card_cents, total_cents, note, created_by, updated_by, created_at, updated_at, version)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                    `).run(id, storeId, data.date, cashCents, cardCents, totalCents, data.note || '', req.user.username, req.user.username, createdAt, now);
+
+                    const rec = {
+                        id,
+                        storeId,
+                        date: data.date,
+                        cash: cashCents / 100,
+                        card: cardCents / 100,
+                        total: totalCents / 100,
+                        note: data.note || '',
+                        createdBy: req.user.username,
+                        updatedBy: req.user.username,
+                        createdAt,
+                        updatedAt: now,
+                        version: 1
+                    };
+                    logAudit('revenue', id, 'RECONCILE_INSERT', req.user.username, null, rec, req.ip);
+                    broadcastEvent('REVENUE_CHANGED', { action: 'CREATE', record: rec });
+                    reconciled.push({ originalId, serverId: id, record: rec });
+
+                } else if (normalizedType === 'CREATE_EXPENSE' || normalizedType === 'UPDATE_EXPENSE') {
+                    const id = data.id || originalId || ('exp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6));
+                    const amountCents = data.amountCents !== undefined ? data.amountCents : Math.round((parseFloat(data.amount) || 0) * 100);
+                    const category = mapExpenseCategory(data.category);
+
+                    let existing = db.prepare('SELECT * FROM expenses WHERE id = ?').get(id);
+                    if (!existing && storeId && data.date) {
+                        existing = db.prepare('SELECT * FROM expenses WHERE store_id = ? AND date = ? AND amount_cents = ? AND category = ? AND is_deleted = 0').get(storeId, data.date, amountCents, category);
+                    }
+
+                    if (existing) {
+                        const rec = {
+                            id: existing.id,
+                            storeId: existing.store_id,
+                            date: existing.date,
+                            category: existing.category,
+                            amount: existing.amount_cents / 100,
+                            description: existing.description || '',
+                            createdBy: existing.created_by,
+                            createdAt: existing.created_at,
+                            version: existing.version
+                        };
+                        reconciled.push({ originalId, serverId: existing.id, record: rec });
+                        continue;
+                    }
+
+                    const createdAt = data.createdAt || now;
+                    db.prepare(`
+                        INSERT INTO expenses (id, store_id, date, category, amount_cents, description, created_by, updated_by, created_at, updated_at, version)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                    `).run(id, storeId, data.date, category, amountCents, data.description || '', req.user.username, req.user.username, createdAt, now);
+
+                    const rec = {
+                        id,
+                        storeId,
+                        date: data.date,
+                        category,
+                        amount: amountCents / 100,
+                        description: data.description || '',
+                        createdBy: req.user.username,
+                        createdAt,
+                        version: 1
+                    };
+                    logAudit('expense', id, 'RECONCILE_INSERT', req.user.username, null, rec, req.ip);
+                    broadcastEvent('EXPENSE_CHANGED', { action: 'CREATE', record: rec });
+                    reconciled.push({ originalId, serverId: id, record: rec });
+                }
+            } catch (err) {
+                console.error('[Reconcile Error] Item:', originalId, err.message);
+            }
+        }
+    });
+
+    processReconcile();
+
+    if (reconciled.length > 0) {
+        broadcastEvent('BATCH_SYNC', { count: reconciled.length });
+    }
+
+    res.json({ success: true, reconciled });
+});
+
 router.post('/sync/push', requireAuth, (req, res) => {
     const { items } = req.body; // Array of queued actions
     if (!Array.isArray(items) || items.length === 0) {
