@@ -143,9 +143,13 @@
                     </div>
 
                     <!-- Quick Action Buttons (Desktop) -->
+                    <button onclick="openReceiptScanner()" class="hidden md:flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg font-bold text-xs sm:text-sm shadow-md shadow-blue-500/20 transition cursor-pointer" title="Tagesabschluss per Foto automatisch erfassen">
+                        <i data-lucide="camera" class="w-4 h-4"></i>
+                        <span>📷 Beleg scannen</span>
+                    </button>
                     <button onclick="openModal('quickRevenueModal')" class="hidden md:flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 px-3 py-1.5 rounded-lg font-bold text-xs sm:text-sm shadow-md shadow-emerald-500/25 transition">
                         <i data-lucide="plus-circle" class="w-4 h-4"></i>
-                        <span>+ Umsatz</span>
+                        <span>+ Manuell</span>
                     </button>
                     <button onclick="openModal('quickExpenseModal')" class="hidden md:flex items-center gap-1.5 bg-rose-500 hover:bg-rose-600 text-white px-3 py-1.5 rounded-lg font-bold text-xs sm:text-sm shadow-md shadow-rose-500/25 transition">
                         <i data-lucide="minus-circle" class="w-4 h-4"></i>
@@ -270,16 +274,20 @@
         <section id="tab-dashboard" class="tab-content block space-y-6">
             
             <!-- Quick Actions Mobile Bar -->
-            <div class="grid grid-cols-3 gap-2 md:hidden">
-                <button onclick="openQuickNumpad()" class="flex flex-col items-center justify-center gap-1 bg-gradient-to-tr from-emerald-600 to-teal-500 text-white py-2.5 px-2 rounded-xl font-bold text-xs shadow active:scale-95 transition">
-                    <i data-lucide="calculator" class="w-5 h-5"></i>
-                    <span>⚡ Blitz-Buchung</span>
+            <div class="grid grid-cols-4 gap-2 md:hidden">
+                <button onclick="openReceiptScanner()" class="flex flex-col items-center justify-center gap-1 bg-gradient-to-tr from-blue-600 to-indigo-600 text-white py-2.5 px-1.5 rounded-xl font-bold text-[11px] shadow active:scale-95 transition">
+                    <i data-lucide="camera" class="w-5 h-5"></i>
+                    <span>📷 Beleg</span>
                 </button>
-                <button onclick="openModal('quickRevenueModal')" class="flex flex-col items-center justify-center gap-1 bg-emerald-700 text-white py-2.5 px-2 rounded-xl font-bold text-xs shadow active:scale-95 transition">
+                <button onclick="openQuickNumpad()" class="flex flex-col items-center justify-center gap-1 bg-gradient-to-tr from-emerald-600 to-teal-500 text-white py-2.5 px-1.5 rounded-xl font-bold text-[11px] shadow active:scale-95 transition">
+                    <i data-lucide="calculator" class="w-5 h-5"></i>
+                    <span>⚡ Blitz</span>
+                </button>
+                <button onclick="openModal('quickRevenueModal')" class="flex flex-col items-center justify-center gap-1 bg-emerald-700 text-white py-2.5 px-1.5 rounded-xl font-bold text-[11px] shadow active:scale-95 transition">
                     <i data-lucide="plus" class="w-5 h-5"></i>
                     <span>Umsatz</span>
                 </button>
-                <button onclick="openModal('quickExpenseModal')" class="flex flex-col items-center justify-center gap-1 bg-rose-600 text-white py-2.5 px-2 rounded-xl font-bold text-xs shadow active:scale-95 transition">
+                <button onclick="openModal('quickExpenseModal')" class="flex flex-col items-center justify-center gap-1 bg-rose-600 text-white py-2.5 px-1.5 rounded-xl font-bold text-[11px] shadow active:scale-95 transition">
                     <i data-lucide="minus" class="w-5 h-5"></i>
                     <span>Kosten</span>
                 </button>
@@ -1984,6 +1992,11 @@
             <form id="revenueForm" onsubmit="handleRevenueSubmit(event)" class="space-y-4 mt-4">
                 <input type="hidden" id="revEditId" value="">
                 
+                <button type="button" onclick="closeModal('quickRevenueModal'); openReceiptScanner();" class="w-full flex items-center justify-center gap-2 p-2.5 rounded-xl border border-dashed border-blue-400 bg-blue-50/70 hover:bg-blue-100 text-blue-700 text-xs font-bold transition">
+                    <i data-lucide="camera" class="w-4 h-4"></i>
+                    <span>📸 Foto von Tagesabschluss laden (Auto-Ausfüllen per OCR)</span>
+                </button>
+                
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                         <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Datum *</label>
@@ -2246,6 +2259,9 @@
     <!-- Load Sync Manager and Data Service before App logic -->
     <script src="sync-manager.js"></script>
     <script src="data-service.js"></script>
+    <script src="tesseract.min.js"></script>
+    <script src="receipt-parser.js"></script>
+    <script src="receipt-scanner.js"></script>
     <script src="app.js"></script>
     <!-- Service Worker Registration for PWA -->
     <script>
@@ -2329,5 +2345,181 @@
             </div>
         </div>
     </div>
+
+    <!-- ========================================================================= -->
+    <!-- MODAL: TAGESABSCHLUSS SCANNER & OCR (FOTO-ERFASSUNG)                      -->
+    <!-- ========================================================================= -->
+    <div id="receiptScanModal" class="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-md hidden flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+        <div class="bg-white rounded-3xl max-w-2xl w-full p-5 sm:p-7 shadow-2xl border border-slate-100 relative animate-scaleIn max-h-[92vh] flex flex-col">
+            <!-- Header -->
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100 flex-shrink-0">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shadow-sm">
+                        <i data-lucide="camera" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-lg text-slate-900 leading-tight">Tagesabschluss per Foto erfassen</h3>
+                        <p class="text-xs text-slate-500">Automatische Erkennung von Filiale, Datum, Bar & Karte</p>
+                    </div>
+                </div>
+                <button onclick="closeReceiptScanner()" class="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- Scrollable Body -->
+            <div class="overflow-y-auto flex-1 py-4 pr-1">
+                <!-- 1. UPLOAD ZONE -->
+                <div id="receiptUploadZone" class="space-y-4">
+                    <div class="border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-2xl p-6 sm:p-8 text-center bg-slate-50/50 hover:bg-blue-50/30 transition cursor-pointer flex flex-col items-center justify-center group" onclick="document.getElementById('receiptFileInput').click()">
+                        <div class="w-14 h-14 rounded-2xl bg-blue-100/70 text-blue-600 flex items-center justify-center mb-3 group-hover:scale-110 transition">
+                            <i data-lucide="upload-cloud" class="w-7 h-7"></i>
+                        </div>
+                        <span class="text-sm font-bold text-slate-800 mb-1">Foto hier ablegen oder auswählen</span>
+                        <span class="text-xs text-slate-500 max-w-sm mb-4">Unterstützt Fotos vom PC oder direkt aus der Smartphone-Kamera (JPG, PNG, WebP)</span>
+                        
+                        <div class="flex flex-wrap items-center justify-center gap-2">
+                            <button type="button" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-sm transition flex items-center gap-1.5">
+                                <i data-lucide="folder-open" class="w-4 h-4"></i>
+                                <span>Datei auswählen</span>
+                            </button>
+                            <button type="button" onclick="event.stopPropagation(); document.getElementById('receiptCameraInput').click();" class="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl shadow-sm transition flex items-center gap-1.5">
+                                <i data-lucide="camera" class="w-4 h-4"></i>
+                                <span>Kamera öffnen</span>
+                            </button>
+                        </div>
+                        <input type="file" id="receiptFileInput" accept="image/*,application/pdf" class="hidden" onchange="handleReceiptFileSelect(event)">
+                        <input type="file" id="receiptCameraInput" accept="image/*" capture="environment" class="hidden" onchange="handleReceiptFileSelect(event)">
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-slate-600 text-xs">
+                        <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-100 flex items-center gap-2">
+                            <span class="text-base">🏪</span>
+                            <span><strong>Filial-Erkennung:</strong> Lichtenberg, Grünau & KW</span>
+                        </div>
+                        <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-100 flex items-center gap-2">
+                            <span class="text-base">💶</span>
+                            <span><strong>Zahlungsarten:</strong> Trennt Bar und EC-Karte</span>
+                        </div>
+                        <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-100 flex items-center gap-2">
+                            <span class="text-base">🛡️</span>
+                            <span><strong>Schutz:</strong> Verhindert doppelte Buchungen</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. PROGRESS BAR -->
+                <div id="receiptProgressContainer" class="hidden py-8 px-4 text-center space-y-4">
+                    <div class="w-16 h-16 rounded-full border-4 border-blue-200 border-t-blue-600 animate-spin mx-auto"></div>
+                    <div class="space-y-1">
+                        <h4 class="font-bold text-sm text-slate-800" id="receiptProgressText">Analysiere Beleg...</h4>
+                        <p class="text-xs text-slate-500">Texterkennung und mathematische Prüfung laufen...</p>
+                    </div>
+                    <div class="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden max-w-md mx-auto">
+                        <div id="receiptProgressBar" class="bg-blue-600 h-2.5 rounded-full transition-all duration-300" style="width: 25%"></div>
+                    </div>
+                </div>
+
+                <!-- 3. VERIFICATION PREVIEW ZONE -->
+                <div id="receiptPreviewZone" class="hidden space-y-4">
+                    <div id="scanWarningBox"></div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <!-- Left: Original Receipt Photo -->
+                        <div class="bg-slate-900 rounded-2xl p-2 relative flex flex-col items-center justify-center overflow-hidden min-h-[220px] max-h-[360px]">
+                            <img id="receiptPreviewImg" src="" alt="Beleg-Vorschau" class="max-h-[340px] w-auto object-contain rounded-xl shadow cursor-zoom-in" onclick="window.openReceiptViewer(this.src, '')">
+                            <span class="absolute bottom-3 right-3 bg-slate-900/80 backdrop-blur-sm text-white text-[10px] px-2 py-1 rounded-md font-medium">🔍 Klick für Vollbild</span>
+                        </div>
+
+                        <!-- Right: Extracted & Editable Fields -->
+                        <div class="space-y-3">
+                            <!-- Filiale -->
+                            <div>
+                                <div class="flex items-center justify-between mb-1">
+                                    <label class="text-xs font-bold text-slate-700 uppercase">Filiale *</label>
+                                    <span id="scanStoreBadge" class="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">✓ Erkannt</span>
+                                </div>
+                                <select id="scanStoreId" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                                </select>
+                            </div>
+
+                            <!-- Datum -->
+                            <div>
+                                <div class="flex items-center justify-between mb-1">
+                                    <label class="text-xs font-bold text-slate-700 uppercase">Datum *</label>
+                                    <span id="scanDateBadge" class="text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">✓ Erkannt</span>
+                                </div>
+                                <input type="date" id="scanDate" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                            </div>
+
+                            <!-- Bar & Karte -->
+                            <div class="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Bar (€) *</label>
+                                    <input type="number" step="0.01" min="0" id="scanCash" oninput="recalculateScanMath()" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm font-bold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Karte (€) *</label>
+                                    <input type="number" step="0.01" min="0" id="scanCard" oninput="recalculateScanMath()" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs sm:text-sm font-bold text-slate-900 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                                </div>
+                            </div>
+
+                            <!-- Gesamt -->
+                            <div>
+                                <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Gesamtumsatz (€) *</label>
+                                <input type="number" step="0.01" min="0" id="scanTotal" oninput="recalculateScanMath()" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm sm:text-base font-black text-emerald-700 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                            </div>
+
+                            <!-- Live Sum Check Badge -->
+                            <div id="scanSumCheckBadge"></div>
+
+                            <!-- Detected Metadata -->
+                            <div id="scanDetailsContainer" class="flex flex-wrap gap-1.5 pt-1"></div>
+
+                            <!-- Notiz -->
+                            <div>
+                                <input type="text" id="scanNote" placeholder="Notiz (optional)..." class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer Actions -->
+            <div class="pt-3 border-t border-slate-100 flex items-center justify-between flex-shrink-0">
+                <button type="button" onclick="closeReceiptScanner()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition">
+                    Abbrechen
+                </button>
+                <div class="flex items-center gap-2">
+                    <button type="button" onclick="resetScanModal()" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold rounded-xl transition flex items-center gap-1">
+                        <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+                        <span>Anderes Foto</span>
+                    </button>
+                    <button type="button" id="scanSaveBtn" onclick="confirmAndSaveScannedRevenue()" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-md shadow-emerald-600/30 transition flex items-center gap-1.5">
+                        <i data-lucide="check" class="w-4 h-4"></i>
+                        <span>Umsatz buchen</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- MODAL: ORIGINALBELEG VOLLBILD-VIEWER (LIGHTBOX)                           -->
+    <!-- ========================================================================= -->
+    <div id="receiptViewerModal" class="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md hidden flex items-center justify-center p-4">
+        <div class="relative max-w-4xl w-full max-h-[95vh] flex flex-col items-center">
+            <div class="w-full flex items-center justify-between text-white pb-3">
+                <span id="receiptViewerTitle" class="text-sm font-bold truncate">Originalbeleg</span>
+                <button onclick="closeReceiptViewer()" class="p-1 rounded-lg bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <div class="overflow-auto max-h-[85vh] rounded-2xl bg-slate-900 p-2 border border-slate-800 flex items-center justify-center">
+                <img id="receiptViewerImg" src="" alt="Beleg" class="max-h-[80vh] w-auto object-contain rounded-lg">
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>

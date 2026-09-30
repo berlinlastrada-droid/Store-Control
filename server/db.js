@@ -96,8 +96,21 @@ function initSchema() {
         );
         CREATE INDEX IF NOT EXISTS idx_revenues_store_date ON revenues(store_id, date);
         CREATE INDEX IF NOT EXISTS idx_revenues_date ON revenues(date);
+        
         CREATE INDEX IF NOT EXISTS idx_revenues_deleted ON revenues(is_deleted);
+        CREATE INDEX IF NOT EXISTS idx_revenues_receipt_hash ON revenues(receipt_hash);
     `);
+
+    // Ensure receipt attachment columns exist for photo OCR feature
+    try {
+        const revCols = db.pragma('table_info(revenues)').map(c => c.name);
+        if (!revCols.includes('receipt_url')) db.exec('ALTER TABLE revenues ADD COLUMN receipt_url TEXT');
+        if (!revCols.includes('receipt_data')) db.exec('ALTER TABLE revenues ADD COLUMN receipt_data TEXT');
+        if (!revCols.includes('receipt_hash')) db.exec('ALTER TABLE revenues ADD COLUMN receipt_hash TEXT');
+    } catch (e) {
+        console.warn('[DB] Receipt migration check:', e.message);
+    }
+
 
     // 5. Expenses Table
     db.exec(`

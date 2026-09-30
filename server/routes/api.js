@@ -3,6 +3,9 @@ const crypto = require('crypto');
 const os = require('os');
 const qrcode = require('qrcode');
 const { db, logAudit, getAppSetting, setAppSetting } = require('../db');
+const { parseGermanReceiptText } = require('../receipt-parser');
+const path = require('path');
+const fs = require('fs');
 const { 
     authenticateUser, 
     generateToken, 
@@ -466,14 +469,17 @@ router.get('/revenues', requireAuth, (req, res) => {
         updatedBy: r.updated_by,
         createdAt: r.created_at,
         updatedAt: r.updated_at,
-        version: r.version
+        version: r.version,
+        receiptUrl: r.receipt_url || null,
+        receiptData: r.receipt_data ? (typeof r.receipt_data === 'string' ? JSON.parse(r.receipt_data) : r.receipt_data) : null,
+        receiptHash: r.receipt_hash || null
     }));
 
     res.json(formatted);
 });
 
 router.post('/revenues', requireAuth, (req, res) => {
-    const { storeId, date, cash, card, note } = req.body;
+    const { storeId, date, cash, card, note, receiptUrl, receiptData, receiptHash } = req.body;
     if (!storeId || !date) {
         return res.status(400).json({ error: 'Filiale und Datum erforderlich.' });
     }
@@ -485,7 +491,10 @@ router.post('/revenues', requireAuth, (req, res) => {
                 id: existing.id, storeId: existing.store_id, date: existing.date,
                 cash: existing.cash_cents / 100, card: existing.card_cents / 100, total: existing.total_cents / 100,
                 note: existing.note || '', createdBy: existing.created_by, createdAt: existing.created_at,
-                updatedAt: existing.updated_at, version: existing.version
+                updatedAt: existing.updated_at, version: existing.version,
+                receiptUrl: existing.receipt_url || null,
+                receiptData: existing.receipt_data || null,
+                receiptHash: existing.receipt_hash || null
             };
             return res.status(200).json({ success: true, record, idempotent: true });
         }
@@ -497,15 +506,19 @@ router.post('/revenues', requireAuth, (req, res) => {
 
     const id = req.body.id || `rev_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     const now = new Date().toISOString();
+    const rDataStr = receiptData ? (typeof receiptData === 'string' ? receiptData : JSON.stringify(receiptData)) : null;
 
     db.prepare(`
-        INSERT INTO revenues (id, store_id, date, cash_cents, card_cents, total_cents, note, created_by, updated_by, created_at, updated_at, version)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-    `).run(id, storeId, date, cashCents, cardCents, totalCents, note || '', req.user.username, req.user.username, now, now);
+        INSERT INTO revenues (id, store_id, date, cash_cents, card_cents, total_cents, note, created_by, updated_by, created_at, updated_at, version, receipt_url, receipt_data, receipt_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+    `).run(id, storeId, date, cashCents, cardCents, totalCents, note || '', req.user.username, req.user.username, now, now, receiptUrl || null, rDataStr, receiptHash || null);
 
     const record = {
         id, storeId, date, cash: cashCents / 100, card: cardCents / 100, total: totalCents / 100,
-        note: note || '', createdBy: req.user.username, createdAt: now, updatedAt: now, version: 1
+        note: note || '', createdBy: req.user.username, createdAt: now, updatedAt: now, version: 1,
+        receiptUrl: receiptUrl || null,
+        receiptData: receiptData || null,
+        receiptHash: receiptHash || null
     };
 
     logAudit('revenue', id, 'CREATE', req.user.username, null, record, req.ip);
@@ -1349,10 +1362,14 @@ router.post('/sync/reconcile', requireAuth, (req, res) => {
                     }
 
                     const createdAt = data.createdAt || now;
+                    const rUrl = data.receiptUrl || data.receipt_url || null;
+                    const rHash = data.receiptHash || data.receipt_hash || null;
+                    const rData = data.receiptData || data.receipt_data ? (typeof (data.receiptData || data.receipt_data) === 'string' ? (data.receiptData || data.receipt_data) : JSON.stringify(data.receiptData || data.receipt_data)) : null;
+
                     db.prepare(`
-                        INSERT INTO revenues (id, store_id, date, cash_cents, card_cents, total_cents, note, created_by, updated_by, created_at, updated_at, version)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-                    `).run(id, storeId, data.date, cashCents, cardCents, totalCents, data.note || '', req.user.username, req.user.username, createdAt, now);
+                        INSERT INTO revenues (id, store_id, date, cash_cents, card_cents, total_cents, note, created_by, updated_by, created_at, updated_at, version, receipt_url, receipt_data, receipt_hash)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+                    `).run(id, storeId, data.date, cashCents, cardCents, totalCents, data.note || '', req.user.username, req.user.username, createdAt, now, rUrl, rData, rHash);
 
                     const rec = {
                         id,
@@ -1366,7 +1383,10 @@ router.post('/sync/reconcile', requireAuth, (req, res) => {
                         updatedBy: req.user.username,
                         createdAt,
                         updatedAt: now,
-                        version: 1
+                        version: 1,
+                        receiptUrl: rUrl,
+                        receiptData: rData ? JSON.parse(rData) : null,
+                        receiptHash: rHash
                     };
                     logAudit('revenue', id, 'RECONCILE_INSERT', req.user.username, null, rec, req.ip);
                     broadcastEvent('REVENUE_CHANGED', { action: 'CREATE', record: rec });
@@ -1879,6 +1899,151 @@ router.get('/sync/integrity', requireAuth, (req, res) => {
         });
     } catch (e) {
         res.status(500).json({ error: 'Fehler bei Integritätsprüfung', details: e.message });
+    }
+});
+
+
+// =============================================================================
+// RECEIPT OCR & PHOTO MANAGEMENT API
+// =============================================================================
+const receiptsUploadDir = path.join(__dirname, '..', '..', 'uploads', 'receipts');
+if (!fs.existsSync(receiptsUploadDir)) {
+    fs.mkdirSync(receiptsUploadDir, { recursive: true });
+}
+
+router.post('/receipts/upload', requireAuth, (req, res) => {
+    try {
+        const { image, fileName, ocrText } = req.body;
+        if (!image) {
+            return res.status(400).json({ error: 'Kein Bild bereitgestellt.' });
+        }
+
+        // Handle base64 image data
+        const matches = image.match(/^data:([A-Za-z-+\/]+);base64,(.+)$/);
+        let buffer;
+        let ext = 'jpg';
+        if (matches && matches.length === 3) {
+            const mime = matches[1];
+            if (mime.includes('png')) ext = 'png';
+            else if (mime.includes('webp')) ext = 'webp';
+            else if (mime.includes('pdf')) ext = 'pdf';
+            buffer = Buffer.from(matches[2], 'base64');
+        } else {
+            buffer = Buffer.from(image, 'base64');
+        }
+
+        if (buffer.length > 20 * 1024 * 1024) {
+            return res.status(400).json({ error: 'Datei ist zu groß (maximal 20 MB).' });
+        }
+
+        // Cryptographic SHA-256 hash of image content
+        const receiptHash = crypto.createHash('sha256').update(buffer).digest('hex');
+
+        // Check duplicate receipt hash
+        const existingRevenue = db.prepare(`
+            SELECT r.*, s.name as store_name 
+            FROM revenues r 
+            JOIN stores s ON r.store_id = s.id 
+            WHERE r.receipt_hash = ? AND r.is_deleted = 0
+        `).get(receiptHash);
+
+        const safeFileName = `rec_${Date.now()}_${receiptHash.substring(0, 8)}.${ext}`;
+        const filePath = path.join(receiptsUploadDir, safeFileName);
+        fs.writeFileSync(filePath, buffer);
+        const receiptUrl = `/uploads/receipts/${safeFileName}`;
+
+        // Parse OCR text if provided
+        let parsed = null;
+        let existingBookingForDay = null;
+        if (ocrText) {
+            parsed = parseGermanReceiptText(ocrText);
+            if (parsed.storeId && parsed.date) {
+                existingBookingForDay = db.prepare(`
+                    SELECT r.*, s.name as store_name 
+                    FROM revenues r 
+                    JOIN stores s ON r.store_id = s.id 
+                    WHERE r.store_id = ? AND r.date = ? AND r.is_deleted = 0
+                `).all(parsed.storeId, parsed.date);
+            }
+        }
+
+        res.json({
+            success: true,
+            receiptUrl,
+            receiptHash,
+            isDuplicateImage: !!existingRevenue,
+            existingRevenue: existingRevenue ? {
+                id: existingRevenue.id,
+                storeId: existingRevenue.store_id,
+                storeName: existingRevenue.store_name,
+                date: existingRevenue.date,
+                total: existingRevenue.total_cents / 100,
+                cash: existingRevenue.cash_cents / 100,
+                card: existingRevenue.card_cents / 100
+            } : null,
+            parsed,
+            existingBookingForDay: (existingBookingForDay && existingBookingForDay.length > 0) ? existingBookingForDay.map(b => ({
+                id: b.id,
+                storeId: b.store_id,
+                storeName: b.store_name,
+                date: b.date,
+                total: b.total_cents / 100,
+                cash: b.cash_cents / 100,
+                card: b.card_cents / 100
+            })) : null
+        });
+    } catch (e) {
+        console.error('Receipt upload error:', e);
+        res.status(500).json({ error: 'Fehler beim Hochladen des Belegs', details: e.message });
+    }
+});
+
+router.post('/receipts/analyze', requireAuth, (req, res) => {
+    try {
+        const { ocrText, receiptHash } = req.body;
+        if (!ocrText) {
+            return res.status(400).json({ error: 'Kein OCR-Text übergeben.' });
+        }
+
+        const parsed = parseGermanReceiptText(ocrText);
+
+        let existingRevenue = null;
+        if (receiptHash) {
+            existingRevenue = db.prepare(`
+                SELECT r.*, s.name as store_name 
+                FROM revenues r 
+                JOIN stores s ON r.store_id = s.id 
+                WHERE r.receipt_hash = ? AND r.is_deleted = 0
+            `).get(receiptHash);
+        }
+
+        let existingBookingForDay = null;
+        if (parsed.storeId && parsed.date) {
+            existingBookingForDay = db.prepare(`
+                SELECT r.*, s.name as store_name 
+                FROM revenues r 
+                JOIN stores s ON r.store_id = s.id 
+                WHERE r.store_id = ? AND r.date = ? AND r.is_deleted = 0
+            `).all(parsed.storeId, parsed.date);
+        }
+
+        res.json({
+            success: true,
+            parsed,
+            isDuplicateImage: !!existingRevenue,
+            existingRevenue,
+            existingBookingForDay: (existingBookingForDay && existingBookingForDay.length > 0) ? existingBookingForDay.map(b => ({
+                id: b.id,
+                storeId: b.store_id,
+                storeName: b.store_name,
+                date: b.date,
+                total: b.total_cents / 100,
+                cash: b.cash_cents / 100,
+                card: b.card_cents / 100
+            })) : null
+        });
+    } catch (e) {
+        res.status(500).json({ error: 'Fehler bei Beleg-Analyse', details: e.message });
     }
 });
 

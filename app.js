@@ -1647,6 +1647,11 @@ function renderRevenuesTable() {
                 <td class="py-3 px-4 text-slate-500 text-xs">${escapeHtml(r.note || '-')}</td>
                 <td class="py-3 px-4 text-right">
                     <div class="flex items-center justify-end gap-1">
+                        ${r.receiptUrl ? `
+                            <button onclick="openReceiptViewer('${escapeHtml(r.receiptUrl)}', '${r.id}')" title="Originalbeleg ansehen" class="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition">
+                                <i data-lucide="receipt" class="w-4 h-4"></i>
+                            </button>
+                        ` : ''}
                         <button onclick="editRevenue('${r.id}')" title="Bearbeiten" class="p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition">
                             <i data-lucide="edit-2" class="w-4 h-4"></i>
                         </button>

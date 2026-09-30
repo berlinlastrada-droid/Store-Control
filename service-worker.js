@@ -4,7 +4,7 @@
  * Caches application shell for offline capability and instant loading on smartphones & PC.
  */
 
-const CACHE_NAME = 'storecontrol-pwa-v2.1.0';
+const CACHE_NAME = 'storecontrol-pwa-v2.2.0';
 const STATIC_ASSETS = [
     '/',
     '/index.html',
@@ -12,6 +12,8 @@ const STATIC_ASSETS = [
     '/app.js',
     '/sync-manager.js',
     '/data-service.js',
+    '/receipt-parser.js',
+    '/receipt-scanner.js',
     '/manifest.json',
     '/manifest.webmanifest',
     '/icons/icon.svg',

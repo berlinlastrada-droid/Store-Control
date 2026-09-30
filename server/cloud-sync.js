@@ -1,3 +1,5 @@
+const path = require('path');
+const fs = require('fs');
 /**
  * StoreControl Pro - Cloud Synchronization Daemon
  * Keeps local PC SQLite database (data/storecontrol.db) in continuous,
@@ -72,14 +74,18 @@ async function syncWithCloud() {
                 const insertRev = db.prepare(`
                     INSERT INTO revenues (
                         id, store_id, date, cash_cents, card_cents, total_cents, note,
-                        created_by, updated_by, is_deleted, created_at, updated_at, version
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+                        created_by, updated_by, is_deleted, created_at, updated_at, version,
+                        receipt_url, receipt_data, receipt_hash
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
                 `);
                 const insertTx = db.transaction(() => {
                     for (const r of missingInLocal) {
                         const cashCents = r.cashCents !== undefined ? r.cashCents : Math.round((parseFloat(r.cash) || 0) * 100);
                         const cardCents = r.cardCents !== undefined ? r.cardCents : Math.round((parseFloat(r.card) || 0) * 100);
                         const totalCents = r.totalCents !== undefined ? r.totalCents : (cashCents + cardCents);
+                        const rDataStr = r.receiptData || r.receipt_data ? (typeof (r.receiptData || r.receipt_data) === 'string' ? (r.receiptData || r.receipt_data) : JSON.stringify(r.receiptData || r.receipt_data)) : null;
+                        const rUrl = r.receiptUrl || r.receipt_url || null;
+                        const rHash = r.receiptHash || r.receipt_hash || null;
                         insertRev.run(
                             r.id,
                             r.storeId || r.store_id,
@@ -92,8 +98,26 @@ async function syncWithCloud() {
                             r.updatedBy || 'admin',
                             r.createdAt || new Date().toISOString(),
                             r.updatedAt || new Date().toISOString(),
-                            r.version || 1
+                            r.version || 1,
+                            rUrl,
+                            rDataStr,
+                            rHash
                         );
+
+                        // If photo URL exists, download photo to local uploads/receipts if not present
+                        if (rUrl && rUrl.startsWith('/uploads/receipts/')) {
+                            const localPhotoPath = path.join(__dirname, '..', rUrl);
+                            if (!fs.existsSync(localPhotoPath)) {
+                                fetch(`${CLOUD_URL}${rUrl}`, { headers })
+                                    .then(res => res.arrayBuffer())
+                                    .then(buf => {
+                                        fs.mkdirSync(path.dirname(localPhotoPath), { recursive: true });
+                                        fs.writeFileSync(localPhotoPath, Buffer.from(buf));
+                                        console.log(`[Cloud-Sync] 📷 Beleg-Foto heruntergeladen: ${rUrl}`);
+                                    })
+                                    .catch(e => console.warn(`[Cloud-Sync] Foto-Download Hinweis: ${e.message}`));
+                            }
+                        }
                     }
                 });
                 insertTx();
@@ -115,7 +139,10 @@ async function syncWithCloud() {
                         card: r.card_cents / 100,
                         total: r.total_cents / 100,
                         note: r.note || '',
-                        createdAt: r.created_at
+                        createdAt: r.created_at,
+                        receiptUrl: r.receipt_url || null,
+                        receiptData: r.receipt_data || null,
+                        receiptHash: r.receipt_hash || null
                     }
                 }));
 
