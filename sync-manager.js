@@ -738,6 +738,60 @@ class SyncManager {
         this.conflictListeners.push(callback);
     }
 
+
+    // =========================================================================
+    // AUTOMATIC CONSISTENCY & INTEGRITY VERIFICATION
+    // =========================================================================
+    async verifyIntegrity(month, localRevenues = [], localExpenses = []) {
+        if (!this.isLoggedIn()) return null;
+        try {
+            const serverRes = await this.apiRequest(`/api/sync/integrity?month=${encodeURIComponent(month || '')}`);
+            if (!serverRes || !serverRes.success) return null;
+
+            // Calculate client-side totals for the month
+            const filteredRevs = (localRevenues || []).filter(r => !r._deletedLocally && (!month || (r.date && r.date.startsWith(month))));
+            const filteredExps = (localExpenses || []).filter(e => !e._deletedLocally && (!month || (e.date && e.date.startsWith(month))));
+
+            let localRevTotalCents = 0;
+            for (const r of filteredRevs) {
+                const cashCents = r.cashCents !== undefined ? r.cashCents : Math.round((parseFloat(r.cash) || 0) * 100);
+                const cardCents = r.cardCents !== undefined ? r.cardCents : Math.round((parseFloat(r.card) || 0) * 100);
+                localRevTotalCents += (cashCents + cardCents);
+            }
+
+            let localExpTotalCents = 0;
+            for (const e of filteredExps) {
+                const amountCents = e.amountCents !== undefined ? e.amountCents : Math.round((parseFloat(e.amount) || 0) * 100);
+                localExpTotalCents += amountCents;
+            }
+
+            const countMatch = filteredRevs.length === serverRes.revenueCount;
+            const sumMatch = localRevTotalCents === serverRes.revenueTotalCents;
+            const expCountMatch = filteredExps.length === serverRes.expenseCount;
+            const expSumMatch = localExpTotalCents === serverRes.expenseTotalCents;
+
+            const isConsistent = countMatch && sumMatch && expCountMatch && expSumMatch;
+
+            return {
+                consistent: isConsistent,
+                month: month || 'all',
+                revenueCount: serverRes.revenueCount,
+                localCount: filteredRevs.length,
+                revenueTotalCents: serverRes.revenueTotalCents,
+                localTotalCents: localRevTotalCents,
+                revenueChecksum: serverRes.revenueChecksum,
+                expenseCount: serverRes.expenseCount,
+                localExpCount: filteredExps.length,
+                expenseTotalCents: serverRes.expenseTotalCents,
+                localExpTotalCents: localExpTotalCents,
+                serverTimestamp: serverRes.serverTimestamp
+            };
+        } catch (e) {
+            console.warn('[SyncManager] Fehler bei Integritätsprüfung:', e.message);
+            return null;
+        }
+    }
+
     notifyConflict(conflicts) {
         for (const cb of this.conflictListeners) {
             try {

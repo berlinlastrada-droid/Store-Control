@@ -4,6 +4,7 @@ const path = require('path');
 const os = require('os');
 const apiRoutes = require('./routes/api');
 const { startTunnel, stopTunnel } = require('./tunnel');
+const { startCloudSyncDaemon } = require('./cloud-sync');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -81,6 +82,8 @@ if (require.main === module) {
         console.log('  📡 Echtzeit-Synchronisation (SSE) aktiv');
         // Starte Cloudflare Tunnel für weltweiten Smartphone-Zugriff
         startTunnel(PORT).catch(err => console.warn('[Tunnel] Hinweis:', err.message));
+        // Starte automatischen PC-Cloud-Sync
+        startCloudSyncDaemon(15000);
         console.log('  💾 SQLite-Datenbank (WAL-Modus, Cent-Genauigkeit) bereit');
         console.log('================================================================');
     });

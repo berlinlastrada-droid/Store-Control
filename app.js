@@ -388,9 +388,14 @@ function triggerManualSync() {
 async function loadInitialData() {
     // 1. Try to load cached state first for instant UI response
     loadStateFromLocalStorageCache();
+    sanitizeLocalStorageCache();
+    updateUI();
 
     // 2. Refresh with authoritative server data
     await loadDataFromServer(true);
+
+    // 3. Automated Data Consistency Check
+    await verifyDataConsistencyWithServer();
 }
 
 function loadStateFromLocalStorageCache() {
@@ -406,6 +411,71 @@ function loadStateFromLocalStorageCache() {
         if (savedProducts) STATE.products = JSON.parse(savedProducts);
     } catch (e) {
         console.warn('Fehler beim Laden des Offline-Caches:', e);
+    }
+}
+
+
+function sanitizeLocalStorageCache() {
+    if (!STATE.revenues || !Array.isArray(STATE.revenues)) return;
+
+    // Deduplicate revenues by canonical key (storeId + date + cash + card)
+    const uniqueRevs = [];
+    const seenRevKeys = new Set();
+    const seenRevIds = new Set();
+    let purgedRevs = 0;
+
+    for (const r of STATE.revenues) {
+        if (!r || !r.id || r._deletedLocally) continue;
+        if (seenRevIds.has(r.id)) {
+            purgedRevs++;
+            continue;
+        }
+        const cash = Math.round((parseFloat(r.cash) || 0) * 100);
+        const card = Math.round((parseFloat(r.card) || 0) * 100);
+        const key = `${r.storeId || r.store_id}__${r.date}__${cash}__${card}`;
+
+        if (seenRevKeys.has(key)) {
+            purgedRevs++;
+            continue;
+        }
+        seenRevKeys.add(key);
+        seenRevIds.add(r.id);
+        uniqueRevs.push(r);
+    }
+
+    if (purgedRevs > 0) {
+        console.log(`[Cache-Sanitizer] 🧹 ${purgedRevs} redundante/duplizierte Umsätze aus lokalem Cache bereinigt.`);
+        STATE.revenues = uniqueRevs;
+    }
+
+    // Deduplicate expenses
+    const uniqueExps = [];
+    const seenExpKeys = new Set();
+    const seenExpIds = new Set();
+    let purgedExps = 0;
+    for (const e of (STATE.expenses || [])) {
+        if (!e || !e.id || e._deletedLocally) continue;
+        if (seenExpIds.has(e.id)) {
+            purgedExps++;
+            continue;
+        }
+        const amt = Math.round((parseFloat(e.amount) || 0) * 100);
+        const key = `${e.storeId || e.store_id}__${e.date}__${e.category}__${amt}`;
+        if (seenExpKeys.has(key)) {
+            purgedExps++;
+            continue;
+        }
+        seenExpKeys.add(key);
+        seenExpIds.add(e.id);
+        uniqueExps.push(e);
+    }
+    if (purgedExps > 0) {
+        console.log(`[Cache-Sanitizer] 🧹 ${purgedExps} redundante/duplizierte Kosten aus lokalem Cache bereinigt.`);
+        STATE.expenses = uniqueExps;
+    }
+
+    if (purgedRevs > 0 || purgedExps > 0) {
+        saveStateToLocalStorageCache();
     }
 }
 
@@ -449,37 +519,66 @@ async function loadDataFromServer(showErrors = false) {
         const mergedRevenues = [...serverRevs];
         for (const localRev of (STATE.revenues || [])) {
             if (!localRev || !localRev.id || localRev._deletedLocally) continue;
-            if (!serverRevIds.has(localRev.id)) {
-                const isQueriedMonth = !STATE.currentMonth || (localRev.date && localRev.date.startsWith(STATE.currentMonth));
-                if (isQueriedMonth) {
-                    console.warn('⚠️ Lokaler Umsatz auf Server nicht vorhanden. Sichere Datensatz & starte Selbstheilung:', localRev.id, localRev.date, localRev.total);
-                    localRev._pendingSync = true;
-                    missingRevsToReconcile.push({
-                        type: 'CREATE_REVENUE',
-                        tempId: localRev.id,
-                        data: localRev
-                    });
-                }
-                mergedRevenues.push(localRev);
+            if (serverRevIds.has(localRev.id)) continue;
+
+            // Check canonical business match (store + date + cash + card)
+            const lCash = Math.round((parseFloat(localRev.cash) || 0) * 100);
+            const lCard = Math.round((parseFloat(localRev.card) || 0) * 100);
+            const lTotal = Math.round((parseFloat(localRev.total) || 0) * 100);
+            const storeMatch = serverRevs.find(sr => {
+                if ((sr.storeId || sr.store_id) !== (localRev.storeId || localRev.store_id)) return false;
+                if (sr.date !== localRev.date) return false;
+                const sCash = Math.round((parseFloat(sr.cash) || 0) * 100);
+                const sCard = Math.round((parseFloat(sr.card) || 0) * 100);
+                const sTotal = Math.round((parseFloat(sr.total) || 0) * 100);
+                return sCash === lCash && sCard === lCard && sTotal === lTotal;
+            });
+            if (storeMatch) {
+                // Canonical record already on server; skip phantom duplicate
+                continue;
             }
+
+            const isQueriedMonth = !STATE.currentMonth || (localRev.date && localRev.date.startsWith(STATE.currentMonth));
+            if (isQueriedMonth) {
+                console.warn('⚠️ Lokaler Umsatz auf Server nicht vorhanden. Sichere Datensatz & starte Selbstheilung:', localRev.id, localRev.date, localRev.total);
+                localRev._pendingSync = true;
+                missingRevsToReconcile.push({
+                    type: 'CREATE_REVENUE',
+                    tempId: localRev.id,
+                    data: localRev
+                });
+            }
+            mergedRevenues.push(localRev);
         }
 
         const missingExpsToReconcile = [];
         const mergedExpenses = [...serverExps];
         for (const localExp of (STATE.expenses || [])) {
             if (!localExp || !localExp.id || localExp._deletedLocally) continue;
-            if (!serverExpIds.has(localExp.id)) {
-                const isQueriedMonth = !STATE.currentMonth || (localExp.date && localExp.date.startsWith(STATE.currentMonth));
-                if (isQueriedMonth) {
-                    localExp._pendingSync = true;
-                    missingExpsToReconcile.push({
-                        type: 'CREATE_EXPENSE',
-                        tempId: localExp.id,
-                        data: localExp
-                    });
-                }
-                mergedExpenses.push(localExp);
+            if (serverExpIds.has(localExp.id)) continue;
+
+            const lAmt = Math.round((parseFloat(localExp.amount) || 0) * 100);
+            const expMatch = serverExps.find(se => {
+                if ((se.storeId || se.store_id) !== (localExp.storeId || localExp.store_id)) return false;
+                if (se.date !== localExp.date) return false;
+                if (se.category !== localExp.category) return false;
+                const sAmt = Math.round((parseFloat(se.amount) || 0) * 100);
+                return sAmt === lAmt;
+            });
+            if (expMatch) {
+                continue;
             }
+
+            const isQueriedMonth = !STATE.currentMonth || (localExp.date && localExp.date.startsWith(STATE.currentMonth));
+            if (isQueriedMonth) {
+                localExp._pendingSync = true;
+                missingExpsToReconcile.push({
+                    type: 'CREATE_EXPENSE',
+                    tempId: localExp.id,
+                    data: localExp
+                });
+            }
+            mergedExpenses.push(localExp);
         }
 
         const mergedProducts = [...serverProds];
@@ -4488,3 +4587,43 @@ function toggleDarkMode() {
     }
 }
 window.toggleDarkMode = toggleDarkMode;
+
+
+// =============================================================================
+// AUTOMATIC DATA INTEGRITY & CONSISTENCY CHECK
+// =============================================================================
+async function verifyDataConsistencyWithServer() {
+    if (!window.syncManager || !syncManager.isLoggedIn()) return;
+    try {
+        const integrity = await syncManager.verifyIntegrity(STATE.currentMonth, STATE.revenues, STATE.expenses);
+        const syncBtn = document.getElementById('syncStatusBtn');
+        const syncDot = document.getElementById('syncIndicatorDot');
+        const syncText = document.getElementById('syncStatusText');
+
+        if (integrity && integrity.consistent) {
+            if (syncDot) {
+                syncDot.className = 'w-2 h-2 rounded-full bg-emerald-400';
+            }
+            if (syncText) {
+                syncText.textContent = `${integrity.revenueCount} Buchungen synchron`;
+            }
+            if (syncBtn) {
+                syncBtn.title = `100% synchron mit zentraler Datenbank: ${integrity.revenueCount} Buchungen, Summe: ${(integrity.revenueTotalCents / 100).toFixed(2)} €, Prüfsumme: ${integrity.revenueChecksum}`;
+                syncBtn.classList.remove('border-amber-500/50', 'text-amber-400');
+                syncBtn.classList.add('border-emerald-500/30', 'text-emerald-400');
+            }
+        } else if (integrity && !integrity.consistent) {
+            console.warn('[Integrity] Inkonsistenz erkannt:', integrity);
+            if (syncDot) syncDot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
+            if (syncText) syncText.textContent = 'Abgleich läuft...';
+            if (syncBtn) {
+                syncBtn.title = `Abweichung erkannt (Lokal: ${integrity.localCount}, Server: ${integrity.revenueCount}). Automatischer Abgleich wird ausgeführt.`;
+                syncBtn.classList.add('border-amber-500/50', 'text-amber-400');
+            }
+            // Auto self-heal
+            await loadDataFromServer(false);
+        }
+    } catch (e) {
+        console.warn('Integritätsprüfung aufgeschoben:', e.message);
+    }
+}

@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const os = require('os');
 const qrcode = require('qrcode');
 const { db, logAudit, getAppSetting, setAppSetting } = require('../db');
@@ -1820,6 +1821,65 @@ router.post('/migration/import', requireAuth, requireRole(['admin']), (req, res)
         importedRevenues,
         importedExpenses
     });
+});
+
+
+// =============================================================================
+// AUTOMATIC DATA INTEGRITY & CONSISTENCY CHECK
+// =============================================================================
+router.get('/sync/integrity', requireAuth, (req, res) => {
+    try {
+        const month = req.query.month || '';
+        
+        let revQuery = 'SELECT id, store_id, date, cash_cents, card_cents, total_cents, version FROM revenues WHERE is_deleted = 0';
+        let expQuery = 'SELECT id, store_id, date, amount_cents, category, version FROM expenses WHERE is_deleted = 0';
+        const params = [];
+        
+        if (month) {
+            revQuery += ' AND date LIKE ?';
+            expQuery += ' AND date LIKE ?';
+            params.push(month + '%');
+        }
+        
+        revQuery += ' ORDER BY date ASC, store_id ASC, id ASC';
+        expQuery += ' ORDER BY date ASC, store_id ASC, id ASC';
+        
+        const revenues = db.prepare(revQuery).all(...params);
+        const expenses = db.prepare(expQuery).all(...params);
+        
+        let revTotalCents = 0;
+        const revHash = crypto.createHash('sha256');
+        for (const r of revenues) {
+            revTotalCents += r.total_cents;
+            revHash.update(`${r.id}:${r.store_id}:${r.date}:${r.total_cents}:${r.version};`);
+        }
+        
+        let expTotalCents = 0;
+        const expHash = crypto.createHash('sha256');
+        for (const e of expenses) {
+            expTotalCents += e.amount_cents;
+            expHash.update(`${e.id}:${e.store_id}:${e.date}:${e.amount_cents}:${e.version};`);
+        }
+        
+        const storesCount = db.prepare('SELECT count(*) as cnt FROM stores WHERE is_deleted = 0').get().cnt;
+        const productsCount = db.prepare('SELECT count(*) as cnt FROM products WHERE is_deleted = 0').get().cnt;
+        
+        res.json({
+            success: true,
+            month: month || 'all',
+            revenueCount: revenues.length,
+            revenueTotalCents: revTotalCents,
+            revenueChecksum: revHash.digest('hex').substring(0, 16),
+            expenseCount: expenses.length,
+            expenseTotalCents: expTotalCents,
+            expenseChecksum: expHash.digest('hex').substring(0, 16),
+            storesCount,
+            productsCount,
+            serverTimestamp: new Date().toISOString()
+        });
+    } catch (e) {
+        res.status(500).json({ error: 'Fehler bei Integritätsprüfung', details: e.message });
+    }
 });
 
 module.exports = router;
