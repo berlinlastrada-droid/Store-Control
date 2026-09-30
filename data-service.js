@@ -123,8 +123,10 @@ class DataService {
                 const recMonth = serverRecord.date.substring(0, 7);
                 if (STATE.currentMonth && STATE.currentMonth !== recMonth) {
                     STATE.currentMonth = recMonth;
+                    try { localStorage.setItem('storecontrol_selected_month', recMonth); } catch(e){}
                     const monthSel = document.getElementById('globalMonthSelect');
                     if (monthSel) monthSel.value = recMonth;
+                    if (typeof updateMonthUIElements === 'function') updateMonthUIElements();
                 }
                 if (STATE.currentStoreId !== 'ALL' && STATE.currentStoreId !== serverRecord.storeId) {
                     STATE.currentStoreId = 'ALL';
@@ -264,8 +266,10 @@ class DataService {
                 const recMonth = serverRecord.date.substring(0, 7);
                 if (STATE.currentMonth && STATE.currentMonth !== recMonth) {
                     STATE.currentMonth = recMonth;
+                    try { localStorage.setItem('storecontrol_selected_month', recMonth); } catch(e){}
                     const monthSel = document.getElementById('globalMonthSelect');
                     if (monthSel) monthSel.value = recMonth;
+                    if (typeof updateMonthUIElements === 'function') updateMonthUIElements();
                 }
                 if (STATE.currentStoreId !== 'ALL' && STATE.currentStoreId !== serverRecord.storeId) {
                     STATE.currentStoreId = 'ALL';

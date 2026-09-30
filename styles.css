@@ -539,3 +539,27 @@ select option:focus,
 .dark ::-webkit-scrollbar-thumb:hover {
     background: #334155;
 }
+
+/* ==========================================================================
+   Global Month Navigation & Picker Styles
+   ========================================================================== */
+#globalMonthBar {
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dark #globalMonthBar {
+    background: linear-gradient(135deg, #090d16 0%, #0f172a 100%) !important;
+    border-color: rgba(51, 65, 85, 0.7) !important;
+}
+
+#btnMonthPickerOpen:active,
+#btnPrevMonth:active,
+#btnNextMonth:active,
+#btnResetCurrentMonth:active {
+    transform: scale(0.95);
+}
+
+#pickerMonthsGrid button {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}

@@ -389,6 +389,48 @@ router.delete('/stores/:id', requireAuth, requireRole(['admin']), (req, res) => 
 });
 
 // =============================================================================
+// AVAILABLE MONTHS (Alle Monate mit vorhandenen Daten)
+// =============================================================================
+router.get('/months', requireAuth, (req, res) => {
+    try {
+        const revMonths = db.prepare('SELECT substr(date, 1, 7) as month, COUNT(*) as revenue_count, COALESCE(SUM(total_cents), 0) as total_revenue_cents FROM revenues WHERE is_deleted = 0 GROUP BY substr(date, 1, 7)').all();
+        const expMonths = db.prepare('SELECT substr(date, 1, 7) as month, COUNT(*) as expense_count, COALESCE(SUM(amount_cents), 0) as total_expense_cents FROM expenses WHERE is_deleted = 0 GROUP BY substr(date, 1, 7)').all();
+
+        const monthsMap = new Map();
+        for (const r of revMonths) {
+            monthsMap.set(r.month, {
+                month: r.month,
+                revenueCount: r.revenue_count,
+                totalRevenue: r.total_revenue_cents / 100,
+                expenseCount: 0,
+                totalExpenses: 0
+            });
+        }
+        for (const e of expMonths) {
+            if (!monthsMap.has(e.month)) {
+                monthsMap.set(e.month, {
+                    month: e.month,
+                    revenueCount: 0,
+                    totalRevenue: 0,
+                    expenseCount: e.expense_count,
+                    totalExpenses: e.total_expense_cents / 100
+                });
+            } else {
+                const item = monthsMap.get(e.month);
+                item.expenseCount = e.expense_count;
+                item.totalExpenses = e.total_expense_cents / 100;
+            }
+        }
+
+        const sortedMonths = Array.from(monthsMap.values()).sort((a, b) => b.month.localeCompare(a.month));
+        res.json(sortedMonths);
+    } catch (err) {
+        console.error('Error fetching available months:', err);
+        res.status(500).json({ error: 'Fehler beim Laden der Monate' });
+    }
+});
+
+// =============================================================================
 // REVENUES (Tagesumsätze)
 // =============================================================================
 router.get('/revenues', requireAuth, (req, res) => {

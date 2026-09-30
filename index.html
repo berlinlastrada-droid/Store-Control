@@ -128,10 +128,18 @@
                         </select>
                     </div>
 
-                    <!-- Month Selector -->
-                    <div class="flex items-center gap-1.5 bg-slate-800/90 px-2 sm:px-3 py-1.5 rounded-lg border border-slate-700 hidden sm:flex">
-                        <i data-lucide="calendar" class="w-3.5 h-3.5 text-brand-400 flex-shrink-0"></i>
-                        <input type="month" id="globalMonthSelect" class="bg-transparent text-xs sm:text-sm font-medium text-white focus:outline-none cursor-pointer">
+                    <!-- Month Selector (Desktop Header) -->
+                    <div class="flex items-center gap-1 bg-slate-800/90 px-1.5 sm:px-2 py-1 rounded-lg border border-slate-700 hidden sm:flex" id="desktopHeaderMonthContainer">
+                        <button type="button" onclick="changeMonthRelative(-1)" title="Vorheriger Monat" class="p-1 text-slate-400 hover:text-emerald-400 active:scale-90 transition cursor-pointer">
+                            <i data-lucide="chevron-left" class="w-3.5 h-3.5"></i>
+                        </button>
+                        <div class="flex items-center gap-1 px-0.5">
+                            <i data-lucide="calendar" class="w-3.5 h-3.5 text-brand-400 flex-shrink-0"></i>
+                            <input type="month" id="globalMonthSelect" class="bg-transparent text-xs sm:text-sm font-medium text-white focus:outline-none cursor-pointer" title="Monat auswählen">
+                        </div>
+                        <button type="button" onclick="changeMonthRelative(1)" title="Nächster Monat" class="p-1 text-slate-400 hover:text-emerald-400 active:scale-90 transition cursor-pointer">
+                            <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
+                        </button>
                     </div>
 
                     <!-- Quick Action Buttons (Desktop) -->
@@ -190,6 +198,50 @@
 
     <!-- Main Content Area -->
     <main class="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-6">
+
+        <!-- ========================================================================= -->
+        <!-- PROMINENT GLOBAL MONTH NAVIGATION (Smartphone & Desktop)                  -->
+        <!-- ========================================================================= -->
+        <div id="globalMonthBar" class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 shadow-md rounded-2xl p-2.5 sm:p-3.5 transition-all">
+            <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+                
+                <!-- Left: Quick Navigation Controls (< Vorheriger, Active Month Display, Nächster >) -->
+                <div class="flex items-center justify-between sm:justify-start gap-1.5 sm:gap-2">
+                    <!-- Prev Month Button -->
+                    <button type="button" id="btnPrevMonth" onclick="changeMonthRelative(-1)" title="Vorheriger Monat" class="flex items-center justify-center w-11 h-11 sm:w-9 sm:h-9 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 active:scale-90 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-sm transition cursor-pointer flex-shrink-0">
+                        <i data-lucide="chevron-left" class="w-6 h-6 sm:w-4 sm:h-4 text-emerald-600 dark:text-emerald-400"></i>
+                    </button>
+
+                    <!-- Active Month Button & Trigger for Month Picker Modal -->
+                    <button type="button" id="btnMonthPickerOpen" onclick="openMonthPickerModal()" title="Monat und Jahr direkt auswählen" class="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-3.5 sm:px-4 py-2 sm:py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-750 active:scale-95 border border-slate-300 dark:border-slate-600/80 shadow-sm dark:shadow-inner text-slate-900 dark:text-white group cursor-pointer transition">
+                        <i data-lucide="calendar" class="w-4 h-4 text-brand-600 dark:text-brand-400 group-hover:text-emerald-500 transition flex-shrink-0"></i>
+                        <span id="activeMonthDisplay" class="font-bold text-sm sm:text-base tracking-tight text-slate-900 dark:text-white whitespace-nowrap">September 2026</span>
+                        <i data-lucide="chevron-down" class="w-4 h-4 text-slate-500 dark:text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white transition flex-shrink-0"></i>
+                    </button>
+
+                    <!-- Next Month Button -->
+                    <button type="button" id="btnNextMonth" onclick="changeMonthRelative(1)" title="Nächster Monat" class="flex items-center justify-center w-11 h-11 sm:w-9 sm:h-9 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 active:scale-90 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-sm transition cursor-pointer flex-shrink-0">
+                        <i data-lucide="chevron-right" class="w-6 h-6 sm:w-4 sm:h-4 text-emerald-600 dark:text-emerald-400"></i>
+                    </button>
+                </div>
+
+                <!-- Right: Status Pill & Jump to Current Month Button -->
+                <div class="flex items-center justify-between sm:justify-end gap-2 pt-1 sm:pt-0 border-t border-slate-200 dark:border-slate-800/80 sm:border-t-0">
+                    <!-- Indicator of recorded bookings in this month -->
+                    <div id="monthDataStatsPill" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800/90 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60">
+                        <span id="monthDataDot" class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                        <span id="monthDataText">39 Buchungen</span>
+                    </div>
+
+                    <!-- "Zum aktuellen Monat" (Today) Return Button -->
+                    <button type="button" id="btnResetCurrentMonth" onclick="resetToCurrentMonth()" title="Zum aktuellen Kalendermonat springen" class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition active:scale-95 cursor-pointer bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-sm">
+                        <i data-lucide="clock" class="w-3.5 h-3.5 text-amber-500 dark:text-amber-400 flex-shrink-0"></i>
+                        <span id="btnResetCurrentMonthText">Aktueller Monat</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
 
         <!-- Optional Migration Notice Banner -->
         <div id="migrationBanner" class="hidden bg-amber-500/15 border border-amber-500/30 text-amber-950 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm animate-scaleIn">
@@ -1017,6 +1069,91 @@
             <i data-lucide="smartphone" class="w-5 h-5"></i>
             <span>Sync</span>
         </button>
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- MODAL: MONATSAUSWAHL (Smartphone & Desktop)                               -->
+    <!-- ========================================================================= -->
+    <div id="monthPickerModal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-3 animate-fadeIn">
+        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-3xl max-w-md w-full p-4 sm:p-5 shadow-2xl text-slate-800 dark:text-slate-100 relative animate-scaleIn">
+            
+            <!-- Modal Header -->
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-500 text-white flex items-center justify-center font-bold shadow-md shadow-brand-500/20 flex-shrink-0">
+                        <i data-lucide="calendar" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-black text-slate-900 dark:text-white text-base">Monatsauswahl</h3>
+                        <p class="text-[11px] text-slate-500 dark:text-slate-400">Beliebigen Monat oder historische Daten wählen</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeModal('monthPickerModal')" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <div class="py-4 space-y-4 max-h-[75vh] overflow-y-auto scrollbar-none">
+                
+                <!-- Quick Button: Zum aktuellen Monat -->
+                <div class="flex items-center justify-between gap-2 p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700">
+                    <div class="text-xs">
+                        <div class="font-bold text-slate-800 dark:text-white">Heutiger Monat</div>
+                        <div class="text-[10px] text-slate-500 dark:text-slate-400" id="pickerModalCurrentCalText">Oktober 2026</div>
+                    </div>
+                    <button type="button" onclick="selectMonthFromPicker(getCurrentCalendarMonth());" class="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs flex items-center gap-1.5 shadow transition">
+                        <i data-lucide="calendar-check" class="w-3.5 h-3.5"></i>
+                        <span>Jetzt anzeigen</span>
+                    </button>
+                </div>
+
+                <!-- SECTION: Monate mit vorhandenen Daten -->
+                <div class="space-y-1.5">
+                    <div class="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider px-1">
+                        <span>Monate mit vorhandenen Daten</span>
+                        <i data-lucide="database" class="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400"></i>
+                    </div>
+                    <div id="monthsWithDataList" class="space-y-1.5">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+
+                <!-- SECTION: Beliebiges Jahr & Monat wählen -->
+                <div class="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider px-1">Jahr & Monat wählen</span>
+                        
+                        <!-- Year Stepper -->
+                        <div class="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                            <button type="button" onclick="changePickerYear(-1)" class="p-1 hover:text-slate-900 dark:hover:text-white text-slate-500 dark:text-slate-400 transition cursor-pointer">
+                                <i data-lucide="chevron-left" class="w-4 h-4"></i>
+                            </button>
+                            <span id="pickerYearDisplay" class="font-black text-sm text-slate-900 dark:text-white">2026</span>
+                            <button type="button" onclick="changePickerYear(1)" class="p-1 hover:text-slate-900 dark:hover:text-white text-slate-500 dark:text-slate-400 transition cursor-pointer">
+                                <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 12 Month Grid -->
+                    <div class="grid grid-cols-3 sm:grid-cols-4 gap-2" id="pickerMonthsGrid">
+                        <!-- 12 buttons: Jan .. Dez -->
+                    </div>
+                </div>
+
+                <!-- SECTION: Native Browser Input Fallback -->
+                <div class="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 text-xs">
+                    <span class="text-slate-500 dark:text-slate-400">Manuelle Datumsauswahl:</span>
+                    <input type="month" id="pickerNativeMonthInput" onchange="selectMonthFromPicker(this.value);" class="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                </div>
+            </div>
+
+            <div class="pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+                <button type="button" onclick="closeModal('monthPickerModal')" class="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-xl text-xs transition">
+                    Schließen
+                </button>
+            </div>
+        </div>
     </div>
 
     <!-- ========================================================================= -->

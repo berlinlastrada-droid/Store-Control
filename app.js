@@ -14,6 +14,7 @@ const STATE = {
     auditLogs: [],
     currentStoreId: 'ALL',
     currentMonth: '', // YYYY-MM
+    availableMonths: [],
     activeTab: 'dashboard',
     numpad: {
         cents: 0
@@ -128,8 +129,32 @@ function initDefaultDates() {
     const yyyy = today.getFullYear();
     const mm = String(today.getMonth() + 1).padStart(2, '0');
     const dd = String(today.getDate()).padStart(2, '0');
+    const currentCalMonth = `${yyyy}-${mm}`;
     
-    STATE.currentMonth = `${yyyy}-${mm}`;
+    // Check if user previously selected a month and it's saved in localStorage
+    const savedMonth = localStorage.getItem('storecontrol_selected_month');
+    if (savedMonth && /^\d{4}-\d{2}$/.test(savedMonth)) {
+        STATE.currentMonth = savedMonth;
+    } else {
+        // If not explicitly set yet, check if cached data has revenues for current month;
+        // If not, find the latest month that has data (e.g. September 2026), so existing data is immediately shown!
+        try {
+            const cachedRevs = JSON.parse(localStorage.getItem(STORAGE_KEYS.REVENUES) || '[]');
+            const hasCurrent = cachedRevs.some(r => r.date && r.date.startsWith(currentCalMonth));
+            if (!hasCurrent && cachedRevs.length > 0) {
+                const dates = cachedRevs.map(r => r.date).filter(Boolean).sort().reverse();
+                if (dates.length > 0) {
+                    STATE.currentMonth = dates[0].substring(0, 7);
+                } else {
+                    STATE.currentMonth = currentCalMonth;
+                }
+            } else {
+                STATE.currentMonth = currentCalMonth;
+            }
+        } catch (e) {
+            STATE.currentMonth = currentCalMonth;
+        }
+    }
     
     const dateInput = document.getElementById('revDate');
     if (dateInput) dateInput.value = `${yyyy}-${mm}-${dd}`;
@@ -140,6 +165,8 @@ function initDefaultDates() {
 
     const monthSelect = document.getElementById('globalMonthSelect');
     if (monthSelect) monthSelect.value = STATE.currentMonth;
+    
+    updateMonthUIElements();
 }
 
 function initEventListeners() {
@@ -156,8 +183,7 @@ function initEventListeners() {
     const monthSelect = document.getElementById('globalMonthSelect');
     if (monthSelect) {
         monthSelect.addEventListener('change', (e) => {
-            STATE.currentMonth = e.target.value;
-            loadDataFromServer();
+            setGlobalMonth(e.target.value);
         });
     }
 
@@ -558,6 +584,7 @@ async function runLocalStorageMigration() {
 function updateUI() {
     updateStoreDropdowns();
     renderBannerNotice();
+    updateMonthUIElements();
     renderDashboardKPIs();
     renderCharts();
     renderStoreComparisonTable();
@@ -684,6 +711,269 @@ function renderBannerNotice() {
     const reportGen = document.getElementById('reportGeneratedAt');
     if (reportGen) {
         reportGen.textContent = new Date().toLocaleString('de-DE');
+    }
+}
+
+// =============================================================================
+// DYNAMIC MONTH NAVIGATION & PICKER (Mobile & Desktop)
+// =============================================================================
+
+function getCurrentCalendarMonth() {
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    return `${yyyy}-${mm}`;
+}
+
+function formatMonthYear(yyyyMm) {
+    if (!yyyyMm || !/^\d{4}-\d{2}$/.test(yyyyMm)) return '';
+    const [y, m] = yyyyMm.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, 1);
+    return dateObj.toLocaleString('de-DE', { month: 'long', year: 'numeric' });
+}
+
+function formatMonthShort(yyyyMm) {
+    if (!yyyyMm || !/^\d{4}-\d{2}$/.test(yyyyMm)) return '';
+    const [y, m] = yyyyMm.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, 1);
+    return dateObj.toLocaleString('de-DE', { month: 'short', year: 'numeric' });
+}
+
+async function setGlobalMonth(targetMonth, skipServerFetch = false) {
+    if (!targetMonth || !/^\d{4}-\d{2}$/.test(targetMonth)) return;
+    STATE.currentMonth = targetMonth;
+    localStorage.setItem('storecontrol_selected_month', targetMonth);
+
+    // Synchronize desktop header input
+    const desktopInput = document.getElementById('globalMonthSelect');
+    if (desktopInput && desktopInput.value !== targetMonth) {
+        desktopInput.value = targetMonth;
+    }
+
+    // Synchronize modal native picker input
+    const pickerNative = document.getElementById('pickerNativeMonthInput');
+    if (pickerNative && pickerNative.value !== targetMonth) {
+        pickerNative.value = targetMonth;
+    }
+
+    updateMonthUIElements();
+    updateUI();
+
+    if (!skipServerFetch && window.syncManager && syncManager.isLoggedIn()) {
+        await loadDataFromServer();
+    }
+
+    loadAvailableMonths();
+}
+
+function changeMonthRelative(delta) {
+    if (!STATE.currentMonth || !/^\d{4}-\d{2}$/.test(STATE.currentMonth)) {
+        STATE.currentMonth = getCurrentCalendarMonth();
+    }
+    const [year, month] = STATE.currentMonth.split('-').map(Number);
+    let newYear = year;
+    let newMonth = month + delta;
+    if (newMonth < 1) {
+        newMonth = 12;
+        newYear -= 1;
+    } else if (newMonth > 12) {
+        newMonth = 1;
+        newYear += 1;
+    }
+    const newYyyyMm = `${newYear}-${String(newMonth).padStart(2, '0')}`;
+    setGlobalMonth(newYyyyMm);
+}
+
+function resetToCurrentMonth() {
+    setGlobalMonth(getCurrentCalendarMonth());
+}
+
+let pickerSelectedYear = new Date().getFullYear();
+
+function openMonthPickerModal() {
+    if (STATE.currentMonth && /^\d{4}-\d{2}$/.test(STATE.currentMonth)) {
+        pickerSelectedYear = parseInt(STATE.currentMonth.split('-')[0], 10);
+    } else {
+        pickerSelectedYear = new Date().getFullYear();
+    }
+    renderMonthPickerContent();
+    openModal('monthPickerModal');
+}
+
+function changePickerYear(delta) {
+    pickerSelectedYear += delta;
+    renderMonthPickerContent();
+}
+
+function selectMonthFromPicker(yyyyMm) {
+    setGlobalMonth(yyyyMm);
+    closeModal('monthPickerModal');
+}
+
+function renderMonthPickerContent() {
+    const yearDisp = document.getElementById('pickerYearDisplay');
+    if (yearDisp) yearDisp.textContent = pickerSelectedYear;
+
+    const curCalText = document.getElementById('pickerModalCurrentCalText');
+    if (curCalText) curCalText.textContent = formatMonthYear(getCurrentCalendarMonth());
+
+    const grid = document.getElementById('pickerMonthsGrid');
+    if (grid) {
+        const monthNames = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+        const currentCal = getCurrentCalendarMonth();
+        
+        // Find months that have data
+        const monthsWithDataMap = new Map();
+        (STATE.availableMonths || []).forEach(m => monthsWithDataMap.set(m.month, m));
+        
+        (STATE.revenues || []).forEach(r => {
+            if (r.date && !r._deletedLocally) {
+                const ym = r.date.substring(0, 7);
+                if (!monthsWithDataMap.has(ym)) {
+                    monthsWithDataMap.set(ym, { month: ym, revenueCount: 1 });
+                }
+            }
+        });
+
+        grid.innerHTML = monthNames.map((name, idx) => {
+            const mm = String(idx + 1).padStart(2, '0');
+            const ym = `${pickerSelectedYear}-${mm}`;
+            const isSelected = ym === STATE.currentMonth;
+            const isCurrentCal = ym === currentCal;
+            const dataInfo = monthsWithDataMap.get(ym);
+            const hasData = !!dataInfo && (dataInfo.revenueCount > 0 || dataInfo.expenseCount > 0);
+
+            let btnClasses = 'flex flex-col items-center justify-center p-2.5 rounded-2xl border transition text-center cursor-pointer active:scale-95 ';
+            if (isSelected) {
+                btnClasses += 'bg-emerald-600 text-white border-emerald-500 shadow-md font-black ring-2 ring-emerald-400/50';
+            } else if (hasData) {
+                btnClasses += 'bg-emerald-950/20 hover:bg-emerald-900/30 text-emerald-600 dark:text-emerald-300 border-emerald-500/50 font-bold';
+            } else if (isCurrentCal) {
+                btnClasses += 'bg-amber-950/20 hover:bg-amber-900/30 text-amber-600 dark:text-amber-300 border-amber-500/50 font-semibold';
+            } else {
+                btnClasses += 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700/60 font-medium';
+            }
+
+            return `
+                <button type="button" onclick="selectMonthFromPicker('${ym}')" class="${btnClasses}">
+                    <span class="text-xs sm:text-sm">${name.substring(0, 3)}</span>
+                    ${hasData ? `<span class="text-[9px] text-emerald-500 dark:text-emerald-400 font-bold mt-0.5 flex items-center gap-0.5"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>${dataInfo.revenueCount || 1} B.</span>` : (isCurrentCal ? `<span class="text-[9px] text-amber-500 dark:text-amber-400 font-semibold mt-0.5">Heute</span>` : `<span class="text-[9px] text-slate-400 mt-0.5">-</span>`)}
+                </button>
+            `;
+        }).join('');
+    }
+
+    renderMonthsWithDataList();
+}
+
+function renderMonthsWithDataList() {
+    const listEl = document.getElementById('monthsWithDataList');
+    if (!listEl) return;
+
+    const map = new Map();
+    (STATE.availableMonths || []).forEach(m => map.set(m.month, m));
+    (STATE.revenues || []).forEach(r => {
+        if (r.date && !r._deletedLocally) {
+            const ym = r.date.substring(0, 7);
+            if (!map.has(ym)) {
+                map.set(ym, { month: ym, revenueCount: 1, totalRevenue: parseFloat(r.total) || 0 });
+            }
+        }
+    });
+
+    const sorted = Array.from(map.values()).sort((a, b) => b.month.localeCompare(a.month));
+    if (sorted.length === 0) {
+        listEl.innerHTML = '<p class="text-xs text-slate-400 italic py-2">Noch keine Monate mit gespeicherten Daten gefunden.</p>';
+        return;
+    }
+
+    listEl.innerHTML = sorted.map(item => {
+        const isCurrent = item.month === STATE.currentMonth;
+        const formattedName = formatMonthYear(item.month);
+        const revCount = item.revenueCount || 0;
+        const totalRev = item.totalRevenue ? formatCurrency(item.totalRevenue) : null;
+
+        return `
+            <button type="button" onclick="selectMonthFromPicker('${item.month}')" class="w-full flex items-center justify-between p-2.5 rounded-xl border transition active:scale-98 cursor-pointer ${isCurrent ? 'bg-emerald-500/15 border-emerald-500 text-white font-bold' : 'bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-700/80 text-slate-700 dark:text-slate-200'}">
+                <div class="flex items-center gap-2 text-left">
+                    <span class="w-2.5 h-2.5 rounded-full ${isCurrent ? 'bg-emerald-400 ring-4 ring-emerald-400/20' : 'bg-slate-400'}"></span>
+                    <div>
+                        <div class="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">${formattedName}</div>
+                        <div class="text-[10px] text-slate-500 dark:text-slate-400">${revCount} Buchungen ${totalRev ? `• ${totalRev} Umsatz` : ''}</div>
+                    </div>
+                </div>
+                <div class="flex items-center gap-1.5">
+                    ${isCurrent ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Aktiv</span>` : `<span class="text-xs text-emerald-600 dark:text-emerald-400 font-semibold">Auswählen →</span>`}
+                </div>
+            </button>
+        `;
+    }).join('');
+}
+
+async function loadAvailableMonths() {
+    try {
+        if (window.syncManager && syncManager.isLoggedIn()) {
+            const data = await syncManager.apiRequest('/api/months');
+            if (Array.isArray(data)) {
+                STATE.availableMonths = data;
+                updateMonthUIElements();
+            }
+        }
+    } catch (e) {
+        // Fallback: available months computed from STATE.revenues
+    }
+}
+
+function updateMonthUIElements() {
+    const curMonth = STATE.currentMonth;
+    const curCal = getCurrentCalendarMonth();
+    const formatted = formatMonthYear(curMonth);
+
+    // Active Month Label on Bar
+    const displayEl = document.getElementById('activeMonthDisplay');
+    if (displayEl) {
+        displayEl.textContent = formatted || curMonth;
+    }
+
+    // Header Input Sync
+    const headerInput = document.getElementById('globalMonthSelect');
+    if (headerInput && headerInput.value !== curMonth) {
+        headerInput.value = curMonth;
+    }
+
+    // Reset / Return to Current Month button styling
+    const resetBtn = document.getElementById('btnResetCurrentMonth');
+    const resetBtnText = document.getElementById('btnResetCurrentMonthText');
+    if (resetBtn) {
+        if (curMonth === curCal) {
+            resetBtn.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700/60 opacity-80';
+            if (resetBtnText) resetBtnText.textContent = 'Aktuell';
+        } else {
+            resetBtn.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition active:scale-95 cursor-pointer bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-md shadow-amber-500/25 ring-2 ring-amber-400/40';
+            const calFormatted = formatMonthShort(curCal);
+            if (resetBtnText) resetBtnText.textContent = `Zu ${calFormatted} (Aktuell)`;
+        }
+    }
+
+    // Data Stats Pill (e.g. 39 Buchungen, 19.852 €)
+    const statsPill = document.getElementById('monthDataStatsPill');
+    const dataDot = document.getElementById('monthDataDot');
+    const dataText = document.getElementById('monthDataText');
+    if (statsPill && dataText) {
+        const monthRevs = (STATE.revenues || []).filter(r => r.date && r.date.startsWith(curMonth) && !r._deletedLocally);
+        const count = monthRevs.length;
+        if (count > 0) {
+            let totalCents = 0;
+            monthRevs.forEach(r => { totalCents += Math.round((parseFloat(r.total) || 0) * 100); });
+            const totalStr = formatCurrency(totalCents / 100);
+            dataText.textContent = `${count} Buchungen • ${totalStr}`;
+            if (dataDot) dataDot.className = 'w-2 h-2 rounded-full bg-emerald-500';
+            statsPill.className = 'flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30';
+        } else {
+            dataText.textContent = 'Keine Buchungen';
+            if (dataDot) dataDot.className = 'w-2 h-2 rounded-full bg-slate-400';
+            statsPill.className = 'flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700/60';
+        }
     }
 }
 
