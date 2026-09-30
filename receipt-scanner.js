@@ -207,6 +207,18 @@
     // =========================================================================
     // VERIFICATION PREVIEW MODAL LOGIC
     // =========================================================================
+    function getStoreDisplayName(s) {
+        if (!s) return '';
+        const storeMap = {
+            'store_1788358914508_zv8v': 'Bruno-Taut-Straße 1 (Grünau)',
+            'store_1788358842956_bolf': 'Volkradstraße 32 (Lichtenberg)',
+            'store_1788358943648_q74l': 'Cottbuser Straße 41 (Königs Wusterhausen)'
+        };
+        if (storeMap[s.id]) return storeMap[s.id];
+        if (s.address && s.address.trim()) return `${s.name} (${s.address.trim()})`;
+        return s.name;
+    }
+
     function showReceiptVerificationView(data) {
         const progressContainer = document.getElementById('receiptProgressContainer');
         const previewZone = document.getElementById('receiptPreviewZone');
@@ -223,7 +235,7 @@
         const storeSelect = document.getElementById('scanStoreId');
         if (storeSelect) {
             storeSelect.innerHTML = (STATE.stores || []).map(s => `
-                <option value="${s.id}" ${parsed.storeId === s.id ? 'selected' : ''}>${s.name} (${s.address || ''})</option>
+                <option value="${s.id}" ${parsed.storeId === s.id ? 'selected' : ''}>${getStoreDisplayName(s)}</option>
             `).join('');
 
             // Highlight if recognized
@@ -262,7 +274,17 @@
 
         const initialCash = parsed.cash || 0;
         const initialCard = parsed.card || 0;
-        const initialTotal = parsed.total || ((initialCash > 0 && initialCard > 0) ? Math.round((initialCash + initialCard) * 100) / 100 : 0);
+        let initialTotal = parsed.total || 0;
+
+        if (initialTotal === 0) {
+            if (initialCash > 0 && initialCard > 0) {
+                initialTotal = Math.round((initialCash + initialCard) * 100) / 100;
+            } else if (initialCard > 0 && initialCash === 0) {
+                initialTotal = initialCard;
+            } else if (initialCash > 0 && initialCard === 0) {
+                initialTotal = initialCash;
+            }
+        }
 
         if (cashInput) cashInput.value = initialCash.toFixed(2);
         if (cardInput) cardInput.value = initialCard.toFixed(2);
@@ -272,6 +294,7 @@
         const detailsContainer = document.getElementById('scanDetailsContainer');
         if (detailsContainer) {
             const details = [];
+            if (parsed.isAllCard) details.push('💳 100% Kartenzahlung');
             if (parsed.receiptNumber) details.push(`Beleg-Nr.: ${parsed.receiptNumber}`);
             if (parsed.transactionCount) details.push(`Kunden: ${parsed.transactionCount}`);
             if (parsed.tax19) details.push(`MwSt 19%: ${parsed.tax19.toFixed(2)} €`);
@@ -332,7 +355,11 @@
 
         if (totalVal > 0 && Math.abs(sumPay - totalVal) <= 0.05) {
             sumBadge.className = 'bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs p-2.5 rounded-xl flex items-center justify-between font-bold';
-            sumBadge.innerHTML = `<span>✓ Summenprüfung OK: ${cashVal.toFixed(2)} € Bar + ${cardVal.toFixed(2)} € Karte</span><span class="text-emerald-700 font-black">${totalVal.toFixed(2)} € Gesamt</span>`;
+            if (cashVal === 0 && cardVal > 0) {
+                sumBadge.innerHTML = `<span>✓ 100% Kartenzahlung (EC: ${cardVal.toFixed(2)} €, kein Bargeld)</span><span class="text-emerald-700 font-black">${totalVal.toFixed(2)} € Gesamt</span>`;
+            } else {
+                sumBadge.innerHTML = `<span>✓ Summenprüfung OK: ${cashVal.toFixed(2)} € Bar + ${cardVal.toFixed(2)} € Karte</span><span class="text-emerald-700 font-black">${totalVal.toFixed(2)} € Gesamt</span>`;
+            }
             if (saveBtn) saveBtn.disabled = false;
         } else if (totalVal > 0) {
             sumBadge.className = 'bg-rose-50 border border-rose-200 text-rose-800 text-xs p-2.5 rounded-xl flex items-center justify-between font-bold';
