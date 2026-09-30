@@ -260,9 +260,13 @@
         const cardInput = document.getElementById('scanCard');
         const totalInput = document.getElementById('scanTotal');
 
-        if (cashInput) cashInput.value = (parsed.cash || 0).toFixed(2);
-        if (cardInput) cardInput.value = (parsed.card || 0).toFixed(2);
-        if (totalInput) totalInput.value = (parsed.total || 0).toFixed(2);
+        const initialCash = parsed.cash || 0;
+        const initialCard = parsed.card || 0;
+        const initialTotal = parsed.total || ((initialCash > 0 && initialCard > 0) ? Math.round((initialCash + initialCard) * 100) / 100 : 0);
+
+        if (cashInput) cashInput.value = initialCash.toFixed(2);
+        if (cardInput) cardInput.value = initialCard.toFixed(2);
+        if (totalInput) totalInput.value = initialTotal.toFixed(2);
 
         // 4. Details (MwSt, Belegnummer)
         const detailsContainer = document.getElementById('scanDetailsContainer');
@@ -311,13 +315,20 @@
     window.recalculateScanMath = function() {
         const cashVal = parseFloat(document.getElementById('scanCash')?.value || 0) || 0;
         const cardVal = parseFloat(document.getElementById('scanCard')?.value || 0) || 0;
-        const totalVal = parseFloat(document.getElementById('scanTotal')?.value || 0) || 0;
+        let totalVal = parseFloat(document.getElementById('scanTotal')?.value || 0) || 0;
 
         const sumPay = Math.round((cashVal + cardVal) * 100) / 100;
         const sumBadge = document.getElementById('scanSumCheckBadge');
         const saveBtn = document.getElementById('scanSaveBtn');
 
         if (!sumBadge) return;
+
+        // Auto-calculate total if total is 0 but cash or card is filled
+        if (totalVal === 0 && sumPay > 0) {
+            totalVal = sumPay;
+            const totalInput = document.getElementById('scanTotal');
+            if (totalInput) totalInput.value = sumPay.toFixed(2);
+        }
 
         if (totalVal > 0 && Math.abs(sumPay - totalVal) <= 0.05) {
             sumBadge.className = 'bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs p-2.5 rounded-xl flex items-center justify-between font-bold';

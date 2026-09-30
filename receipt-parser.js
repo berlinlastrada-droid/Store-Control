@@ -9,9 +9,9 @@
  *     3. Cottbuser Straße (Königs Wusterhausen) -> store_1788358943648_q74l
  * - Date of daily closing (DD.MM.YYYY, YYYY-MM-DD, etc.)
  * - Total revenue (Gesamtumsatz)
- * - Cash payments (Barumsatz)
- * - Card payments (Kartenzahlung, EC, Girocard, Kreditkarte)
- * - Taxes (MwSt 19%, MwSt 7%)
+ * - Cash payments (BAR TOTAL, BAR IN LADE, Barumsatz, etc.)
+ * - Card payments (EC Karte TOTAL, EC Karte IN LADE, Kartenzahlung, etc.)
+ * - Taxes (BRUTTO STEUER, MwSt 19%, MwSt 7%)
  * - Receipt number (Z-Nr, Beleg-Nr)
  * - Transaction / Customer count
  * - Mathematical cross-checks (Cash + Card == Total)
@@ -29,10 +29,8 @@
         if (!str) return 0;
         let clean = str.replace(/[^\d,\.\-]/g, '').trim();
         if (clean.includes(',') && clean.includes('.')) {
-            // e.g. "1.381,86" -> 1381.86
             clean = clean.replace(/\./g, '').replace(',', '.');
         } else if (clean.includes(',')) {
-            // e.g. "1381,86" -> 1381.86
             clean = clean.replace(',', '.');
         }
         const val = parseFloat(clean);
@@ -40,17 +38,33 @@
     }
 
     function extractAmountFromLine(line) {
-        // Matches German amounts like 1.381,86 or 1381,86 or 396,96 or 40.00
-        const matches = [...line.matchAll(/(-?\d{1,3}(?:\.\d{3})+,\d{2}|-?\d+,\d{2}|-?\d{1,3}(?:,\d{3})+\.\d{2}|-?\d+\.\d{2})/g)];
+        if (!line) return 0;
+        // Normalize OCR spaces around comma or dot (e.g. "478 , 97" -> "478,97")
+        const norm = line.replace(/(\d+)\s*([,\.])\s*(\d{2})\b/g, '$1$2$3');
+        const matches = [...norm.matchAll(/(-?\d{1,3}(?:\.\d{3})+,\d{2}|-?\d+,\d{2}|-?\d{1,3}(?:,\d{3})+\.\d{2}|-?\d+\.\d{2})/g)];
         if (matches.length > 0) {
             return parseGermanAmount(matches[matches.length - 1][1]);
         }
         return 0;
     }
 
+    function normalizeReceiptLine(line) {
+        if (!line) return '';
+        let l = line.toLowerCase().replace(/\s+/g, ' ').trim();
+        // Collapse common OCR letter-spacing
+        l = l.replace(/\bb\s+a\s+r\b/g, 'bar');
+        l = l.replace(/\bt\s+o\s+t\s+a\s+l\b/g, 'total');
+        l = l.replace(/\bl\s+a\s+d\s+e\b/g, 'lade');
+        l = l.replace(/\bg\s+e\s+s\s+a\s+m\s+t\b/g, 'gesamt');
+        l = l.replace(/\bu\s+m\s+s\s+a\s+t\s+z\b/g, 'umsatz');
+        l = l.replace(/\bs\s+t\s+e\s+u\s+e\s+r\b/g, 'steuer');
+        l = l.replace(/\bk\s+a\s+r\s+t\s+e\b/g, 'karte');
+        return l;
+    }
+
     function parseGermanReceiptText(text) {
         if (!text) text = '';
-        const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+        const rawLines = text.split('\n').map(l => l.trim()).filter(Boolean);
         const result = {
             storeId: null,
             storeName: null,
@@ -61,6 +75,7 @@
             cash: 0,
             card: 0,
             other: 0,
+            tax: 0,
             tax19: 0,
             tax7: 0,
             receiptNumber: null,
@@ -71,9 +86,9 @@
             rawText: text
         };
 
-        // 1. STORE RECOGNITION (Exact Match for the User's 3 Branches)
         const textLower = text.toLowerCase();
 
+        // 1. STORE RECOGNITION (Exact Match for the User's 3 Branches)
         let scoreLichtenberg = 0;
         if (textLower.includes('volkrad')) scoreLichtenberg += 50;
         if (textLower.includes('lichtenberg')) scoreLichtenberg += 30;
@@ -111,7 +126,7 @@
             /\b(20\d{2})[\.\/\-]([0-1]\d)[\.\/\-]([0-3]\d)\b/
         ];
 
-        for (const line of lines) {
+        for (const line of rawLines) {
             const m1 = line.match(dateRegexes[0]);
             if (m1) {
                 let day = m1[1].padStart(2, '0');
@@ -134,9 +149,34 @@
             result.warnings.push('Datum des Tagesabschlusses nicht eindeutig gefunden. Bitte überprüfen.');
         }
 
+        // Helper: finds amount on current line or lookahead on next 1-2 lines
+        function findAmountForIndex(idx) {
+            const currentAmt = extractAmountFromLine(rawLines[idx]);
+            if (currentAmt > 0) return currentAmt;
+            if (idx + 1 < rawLines.length) {
+                const nextAmt = extractAmountFromLine(rawLines[idx + 1]);
+                if (nextAmt > 0) return nextAmt;
+            }
+            if (idx + 2 < rawLines.length) {
+                const linePlus1 = rawLines[idx + 1].toLowerCase();
+                if (linePlus1.length <= 4 || /^[^0-9a-z]+$/i.test(linePlus1)) {
+                    const nextNextAmt = extractAmountFromLine(rawLines[idx + 2]);
+                    if (nextNextAmt > 0) return nextNextAmt;
+                }
+            }
+            return 0;
+        }
+
         // 3. AMOUNTS & KEY VALUES
-        for (const line of lines) {
-            const lineLow = line.toLowerCase();
+        let barTotalCandidate = 0;
+        let barInLadeCandidate = 0;
+        let ecTotalCandidate = 0;
+        let ecInLadeCandidate = 0;
+        let gesamtCandidate = 0;
+
+        for (let i = 0; i < rawLines.length; i++) {
+            const line = rawLines[i];
+            const lineLow = normalizeReceiptLine(line);
 
             // RECEIPT NUMBER
             if (!result.receiptNumber && (lineLow.includes('z-nr') || lineLow.includes('z-bericht') || lineLow.includes('z-zähler') || lineLow.includes('beleg-nr') || lineLow.includes('abschluss-nr') || lineLow.includes('z1-nr') || lineLow.includes('bon-nr'))) {
@@ -150,25 +190,50 @@
                 if (cntMatch) result.transactionCount = parseInt(cntMatch[1]);
             }
 
-            // CASH REVENUE
-            const isCashLine = !lineLow.includes('unbar') && (
-                lineLow.includes('barumsatz') ||
-                lineLow.includes('bar-umsatz') ||
-                lineLow.includes('bargeld') ||
-                lineLow.includes('barzahlung') ||
-                lineLow.includes('kasse bar') ||
-                lineLow.includes('bar brutto') ||
-                lineLow.includes('summe bar') ||
-                lineLow.startsWith('bar') ||
-                lineLow.includes('bar:')
-            );
-            if (!result.cash && isCashLine) {
-                const amt = extractAmountFromLine(line);
-                if (amt > 0) result.cash = amt;
+            // TAX / STEUER (Must NEVER be confused with Gesamtumsatz!)
+            const isTaxLine = lineLow.includes('steuer') || lineLow.includes('mwst') || lineLow.includes('ust') || lineLow.includes('tax');
+            if (isTaxLine) {
+                const amt = findAmountForIndex(i);
+                if (amt > 0) {
+                    if (lineLow.includes('19%') || lineLow.includes('19,00%')) result.tax19 = amt;
+                    else if (lineLow.includes('7%') || lineLow.includes('7,00%')) result.tax7 = amt;
+                    else if (!result.tax) result.tax = amt;
+                }
+                continue; // CRITICAL: Never evaluate tax lines as revenue or payment methods!
             }
 
-            // CARD REVENUE
-            const isCardLine = (
+            // CASH / BAR
+            const isUnbar = lineLow.includes('unbar');
+            if (!isUnbar) {
+                if (lineLow.includes('bar total') || lineLow.includes('bar-total') || lineLow.includes('bartotal')) {
+                    const amt = findAmountForIndex(i);
+                    if (amt > 0) barTotalCandidate = amt;
+                } else if (lineLow.includes('bar in lade') || lineLow.includes('bar-in-lade') || lineLow.includes('bar in der lade')) {
+                    const amt = findAmountForIndex(i);
+                    if (amt > 0) barInLadeCandidate = amt;
+                } else if (
+                    lineLow.includes('barumsatz') ||
+                    lineLow.includes('bar-umsatz') ||
+                    lineLow.includes('bargeld') ||
+                    lineLow.includes('barzahlung') ||
+                    lineLow.includes('kasse bar') ||
+                    lineLow.includes('bar brutto') ||
+                    lineLow.includes('summe bar') ||
+                    /\bbar\b/i.test(lineLow)
+                ) {
+                    const amt = findAmountForIndex(i);
+                    if (amt > 0 && !result.cash) result.cash = amt;
+                }
+            }
+
+            // CARD / EC
+            if (lineLow.includes('ec karte total') || lineLow.includes('ec-karte total') || lineLow.includes('ec total') || lineLow.includes('ec-total')) {
+                const amt = findAmountForIndex(i);
+                if (amt > 0) ecTotalCandidate = amt;
+            } else if (lineLow.includes('ec karte in lade') || lineLow.includes('ec-karte in lade') || lineLow.includes('ec in lade') || lineLow.includes('ec-in-lade')) {
+                const amt = findAmountForIndex(i);
+                if (amt > 0) ecInLadeCandidate = amt;
+            } else if (
                 lineLow.includes('kartenzahlung') ||
                 lineLow.includes('kartenzahlungen') ||
                 lineLow.includes('ec-karte') ||
@@ -184,52 +249,53 @@
                 lineLow.includes('summe karte') ||
                 lineLow.startsWith('karte') ||
                 lineLow.includes('karte:')
-            );
-            if (!result.card && isCardLine) {
-                const amt = extractAmountFromLine(line);
-                if (amt > 0) result.card = amt;
+            ) {
+                const amt = findAmountForIndex(i);
+                if (amt > 0 && !result.card) result.card = amt;
             }
 
-            // TOTAL REVENUE
-            if (!result.total && !isCashLine && !isCardLine && !lineLow.includes('netto') && !lineLow.includes('mwst') && !lineLow.includes('ust') && (
-                lineLow.includes('gesamtumsatz') ||
-                lineLow.includes('tagesumsatz') ||
-                lineLow.includes('umsatz gesamt') ||
-                lineLow.includes('tages-gesamt') ||
-                lineLow.includes('tages-total') ||
-                lineLow.includes('endsumme') ||
-                lineLow.includes('bruttoumsatz') ||
-                lineLow.includes('brutto-umsatz') ||
-                lineLow.includes('summe eur') ||
-                lineLow.includes('summe brutto') ||
-                lineLow.startsWith('total') ||
-                lineLow.startsWith('gesamt') ||
-                lineLow.startsWith('summe')
-            )) {
-                const amt = extractAmountFromLine(line);
-                if (amt > 0) result.total = amt;
-            }
+            // TOTAL REVENUE / GESAMTUMSATZ
+            // Strictly exclude tax, net, discount, cash, card
+            const isNotTotal = isTaxLine || lineLow.includes('netto') || lineLow.includes('rabatt') || lineLow.includes('trinkgeld') ||
+                lineLow.includes('gutschein') || /\bbar\b/i.test(lineLow) || lineLow.includes('karte') || lineLow.includes('unbar') || lineLow.includes('ec');
 
-            // TAX AMOUNTS
-            if (!result.tax19 && (lineLow.includes('19%') || lineLow.includes('19,00%') || lineLow.includes('19.00%'))) {
-                const parts = line.split(/19(?:,00|\.00)?%/);
-                if (parts.length > 1) {
-                    const amt = extractAmountFromLine(parts[1]);
-                    if (amt > 0) result.tax19 = amt;
-                }
-            }
-            if (!result.tax7 && (lineLow.includes('7%') || lineLow.includes('7,00%') || lineLow.includes('7.00%'))) {
-                const parts = line.split(/7(?:,00|\.00)?%/);
-                if (parts.length > 1) {
-                    const amt = extractAmountFromLine(parts[1]);
-                    if (amt > 0) result.tax7 = amt;
+            if (!isNotTotal) {
+                if (lineLow.includes('gesamtumsatz') || lineLow.includes('gesamt-umsatz') || lineLow.includes('gesamt umsatz')) {
+                    const amt = findAmountForIndex(i);
+                    if (amt > 0) gesamtCandidate = amt;
+                } else if (
+                    lineLow.includes('tagesumsatz') ||
+                    lineLow.includes('tages-umsatz') ||
+                    lineLow.includes('umsatz gesamt') ||
+                    lineLow.includes('tages-gesamt') ||
+                    lineLow.includes('tages-total') ||
+                    lineLow.includes('endsumme') ||
+                    lineLow.includes('bruttoumsatz') ||
+                    lineLow.includes('brutto-umsatz') ||
+                    lineLow.includes('summe eur') ||
+                    lineLow.includes('summe brutto') ||
+                    lineLow.startsWith('total') ||
+                    lineLow.startsWith('gesamt') ||
+                    lineLow.startsWith('summe')
+                ) {
+                    const amt = findAmountForIndex(i);
+                    if (amt > 0 && !result.total) result.total = amt;
                 }
             }
         }
 
-        // 4. MATHEMATICAL VERIFICATION & CROSS-CHECKS
+        // Resolve priority candidates (BAR TOTAL, BAR IN LADE, EC Karte TOTAL, EC Karte IN LADE)
+        if (barTotalCandidate > 0) result.cash = barTotalCandidate;
+        else if (barInLadeCandidate > 0 && !result.cash) result.cash = barInLadeCandidate;
+
+        if (ecTotalCandidate > 0) result.card = ecTotalCandidate;
+        else if (ecInLadeCandidate > 0 && !result.card) result.card = ecInLadeCandidate;
+
+        if (gesamtCandidate > 0) result.total = gesamtCandidate;
+
+        // 4. MATHEMATICAL VERIFICATION & CALCULATION (Section 2 of User Request)
         const sumPay = Math.round((result.cash + result.card + result.other) * 100) / 100;
-        
+
         if (result.total > 0 && sumPay > 0) {
             if (Math.abs(sumPay - result.total) <= 0.05) {
                 result.sumCheck = 'MATCH';
@@ -237,6 +303,10 @@
                 result.sumCheck = 'MISMATCH';
                 result.warnings.push(`Summenabweichung: Bar (${result.cash.toFixed(2)} €) + Karte (${result.card.toFixed(2)} €) = ${sumPay.toFixed(2)} €, aber Gesamtumsatz ist ${result.total.toFixed(2)} €.`);
             }
+        } else if (result.total === 0 && result.cash > 0 && result.card > 0) {
+            // Automatic calculation when cash and card are distinctly recognized
+            result.total = sumPay;
+            result.sumCheck = 'MATCH';
         } else if (result.total > 0 && result.card > 0 && result.cash === 0) {
             result.sumCheck = 'PARTIAL';
         } else if (result.total > 0 && result.cash > 0 && result.card === 0) {
