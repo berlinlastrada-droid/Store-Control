@@ -150,40 +150,25 @@
                 if (cntMatch) result.transactionCount = parseInt(cntMatch[1]);
             }
 
-            // TOTAL REVENUE
-            if (!result.total && (
-                lineLow.includes('gesamtumsatz') ||
-                lineLow.includes('tagesumsatz') ||
-                lineLow.includes('umsatz gesamt') ||
-                lineLow.includes('tages-gesamt') ||
-                lineLow.includes('endsumme') ||
-                lineLow.includes('bruttoumsatz') ||
-                lineLow.includes('brutto-umsatz') ||
-                lineLow.startsWith('total') ||
-                lineLow.startsWith('gesamt') ||
-                lineLow.startsWith('summe')
-            )) {
-                const amt = extractAmountFromLine(line);
-                if (amt > 0) result.total = amt;
-            }
-
             // CASH REVENUE
-            if (!result.cash && (
+            const isCashLine = !lineLow.includes('unbar') && (
                 lineLow.includes('barumsatz') ||
                 lineLow.includes('bar-umsatz') ||
                 lineLow.includes('bargeld') ||
                 lineLow.includes('barzahlung') ||
                 lineLow.includes('kasse bar') ||
                 lineLow.includes('bar brutto') ||
+                lineLow.includes('summe bar') ||
                 lineLow.startsWith('bar') ||
                 lineLow.includes('bar:')
-            )) {
+            );
+            if (!result.cash && isCashLine) {
                 const amt = extractAmountFromLine(line);
                 if (amt > 0) result.cash = amt;
             }
 
             // CARD REVENUE
-            if (!result.card && (
+            const isCardLine = (
                 lineLow.includes('kartenzahlung') ||
                 lineLow.includes('kartenzahlungen') ||
                 lineLow.includes('ec-karte') ||
@@ -196,11 +181,33 @@
                 lineLow.includes('visa') ||
                 lineLow.includes('zvt') ||
                 lineLow.includes('eft') ||
+                lineLow.includes('summe karte') ||
                 lineLow.startsWith('karte') ||
                 lineLow.includes('karte:')
-            )) {
+            );
+            if (!result.card && isCardLine) {
                 const amt = extractAmountFromLine(line);
                 if (amt > 0) result.card = amt;
+            }
+
+            // TOTAL REVENUE
+            if (!result.total && !isCashLine && !isCardLine && !lineLow.includes('netto') && !lineLow.includes('mwst') && !lineLow.includes('ust') && (
+                lineLow.includes('gesamtumsatz') ||
+                lineLow.includes('tagesumsatz') ||
+                lineLow.includes('umsatz gesamt') ||
+                lineLow.includes('tages-gesamt') ||
+                lineLow.includes('tages-total') ||
+                lineLow.includes('endsumme') ||
+                lineLow.includes('bruttoumsatz') ||
+                lineLow.includes('brutto-umsatz') ||
+                lineLow.includes('summe eur') ||
+                lineLow.includes('summe brutto') ||
+                lineLow.startsWith('total') ||
+                lineLow.startsWith('gesamt') ||
+                lineLow.startsWith('summe')
+            )) {
+                const amt = extractAmountFromLine(line);
+                if (amt > 0) result.total = amt;
             }
 
             // TAX AMOUNTS
