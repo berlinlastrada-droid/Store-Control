@@ -121,7 +121,8 @@ class DataService {
             // Ensure date filter does not hide the freshly saved entry
             if (typeof STATE !== 'undefined' && serverRecord.date) {
                 const recMonth = serverRecord.date.substring(0, 7);
-                if (STATE.currentMonth && STATE.currentMonth !== recMonth) {
+                // Only switch month if expense is not recurring and from a different month
+                if (serverRecord.recurrence !== 'monthly' && STATE.currentMonth && STATE.currentMonth !== recMonth) {
                     STATE.currentMonth = recMonth;
                     try { localStorage.setItem('storecontrol_selected_month', recMonth); } catch(e){}
                     const monthSel = document.getElementById('globalMonthSelect');

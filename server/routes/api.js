@@ -398,32 +398,40 @@ router.delete('/stores/:id', requireAuth, requireRole(['admin']), (req, res) => 
 router.get('/months', requireAuth, (req, res) => {
     try {
         const revMonths = db.prepare('SELECT substr(date, 1, 7) as month, COUNT(*) as revenue_count, COALESCE(SUM(total_cents), 0) as total_revenue_cents FROM revenues WHERE is_deleted = 0 GROUP BY substr(date, 1, 7)').all();
-        const expMonths = db.prepare('SELECT substr(date, 1, 7) as month, COUNT(*) as expense_count, COALESCE(SUM(amount_cents), 0) as total_expense_cents FROM expenses WHERE is_deleted = 0 GROUP BY substr(date, 1, 7)').all();
+        const allExpenses = db.prepare('SELECT * FROM expenses WHERE is_deleted = 0').all();
+
+        const monthsSet = new Set(revMonths.map(r => r.month));
+        for (const e of allExpenses) {
+            if (e.date) monthsSet.add(e.date.substring(0, 7));
+        }
 
         const monthsMap = new Map();
-        for (const r of revMonths) {
-            monthsMap.set(r.month, {
-                month: r.month,
-                revenueCount: r.revenue_count,
-                totalRevenue: r.total_revenue_cents / 100,
-                expenseCount: 0,
-                totalExpenses: 0
-            });
-        }
-        for (const e of expMonths) {
-            if (!monthsMap.has(e.month)) {
-                monthsMap.set(e.month, {
-                    month: e.month,
-                    revenueCount: 0,
-                    totalRevenue: 0,
-                    expenseCount: e.expense_count,
-                    totalExpenses: e.total_expense_cents / 100
-                });
-            } else {
-                const item = monthsMap.get(e.month);
-                item.expenseCount = e.expense_count;
-                item.totalExpenses = e.total_expense_cents / 100;
+        for (const m of Array.from(monthsSet).sort()) {
+            const rev = revMonths.find(r => r.month === m);
+            let expenseCount = 0;
+            let totalExpenseCents = 0;
+            for (const e of allExpenses) {
+                const startMonth = (e.date || '').substring(0, 7);
+                if (e.recurrence === 'monthly') {
+                    if (startMonth <= m) {
+                        expenseCount++;
+                        totalExpenseCents += e.amount_cents;
+                    }
+                } else {
+                    if (startMonth === m) {
+                        expenseCount++;
+                        totalExpenseCents += e.amount_cents;
+                    }
+                }
             }
+
+            monthsMap.set(m, {
+                month: m,
+                revenueCount: rev ? rev.revenue_count : 0,
+                totalRevenue: rev ? (rev.total_revenue_cents / 100) : 0,
+                expenseCount,
+                totalExpenses: totalExpenseCents / 100
+            });
         }
 
         const sortedMonths = Array.from(monthsMap.values()).sort((a, b) => b.month.localeCompare(a.month));
@@ -617,8 +625,12 @@ router.get('/expenses', requireAuth, (req, res) => {
         params.push(storeId);
     }
     if (month) {
-        query += ' AND date LIKE ?';
-        params.push(`${month}%`);
+        query += ` AND (
+            (recurrence = 'monthly' AND substr(date, 1, 7) <= ?)
+            OR
+            (COALESCE(recurrence, 'single') != 'monthly' AND date LIKE ?)
+        )`;
+        params.push(month, `${month}%`);
     }
     if (category) {
         query += ' AND category = ?';
@@ -628,20 +640,28 @@ router.get('/expenses', requireAuth, (req, res) => {
     query += ' ORDER BY date DESC, created_at DESC';
     const rows = db.prepare(query).all(...params);
 
-    const formatted = rows.map(e => ({
-        id: e.id,
-        storeId: e.store_id,
-        category: e.category,
-        date: e.date,
-        amount: e.amount_cents / 100,
-        title: e.title,
-        recurrence: e.recurrence,
-        createdBy: e.created_by,
-        updatedBy: e.updated_by,
-        createdAt: e.created_at,
-        updatedAt: e.updated_at,
-        version: e.version
-    }));
+    const formatted = rows.map(e => {
+        let effectiveDate = e.date;
+        if (month && e.recurrence === 'monthly') {
+            const origDay = (e.date || '2026-01-01').substring(8, 10) || '01';
+            effectiveDate = `${month}-${origDay}`;
+        }
+        return {
+            id: e.id,
+            storeId: e.store_id,
+            category: e.category,
+            date: effectiveDate,
+            startDate: e.date,
+            amount: e.amount_cents / 100,
+            title: e.title,
+            recurrence: e.recurrence || 'single',
+            createdBy: e.created_by,
+            updatedBy: e.updated_by,
+            createdAt: e.created_at,
+            updatedAt: e.updated_at,
+            version: e.version
+        };
+    });
 
     res.json(formatted);
 });

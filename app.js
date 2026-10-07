@@ -1089,10 +1089,17 @@ function getFilteredData() {
         exps = exps.filter(e => e.storeId === STATE.currentStoreId);
     }
 
-    // Filter by month
+    // Filter by month (including recurring monthly expenses)
     if (STATE.currentMonth) {
         revs = revs.filter(r => r.date && r.date.startsWith(STATE.currentMonth));
-        exps = exps.filter(e => e.date && e.date.startsWith(STATE.currentMonth));
+        exps = exps.filter(e => {
+            if (e.date && e.date.startsWith(STATE.currentMonth)) return true;
+            if (e.recurrence === 'monthly') {
+                const startM = (e.startDate || e.date || '').substring(0, 7);
+                return startM && startM <= STATE.currentMonth;
+            }
+            return false;
+        });
     }
 
     return { revenues: revs, expenses: exps };
@@ -1481,7 +1488,15 @@ function renderStoreComparisonTable() {
 
     STATE.stores.forEach(store => {
         const storeRevs = STATE.revenues.filter(r => r.storeId === store.id && r.date.startsWith(STATE.currentMonth));
-        const storeExps = STATE.expenses.filter(e => e.storeId === store.id && e.date.startsWith(STATE.currentMonth));
+        const storeExps = STATE.expenses.filter(e => {
+            if (e.storeId !== store.id) return false;
+            if (e.date && e.date.startsWith(STATE.currentMonth)) return true;
+            if (e.recurrence === 'monthly') {
+                const startM = (e.startDate || e.date || '').substring(0, 7);
+                return startM && startM <= STATE.currentMonth;
+            }
+            return false;
+        });
         const totals = calculateTotals(storeRevs, storeExps);
 
         const target = store.targetRevenue || 0;
@@ -1779,7 +1794,14 @@ function renderExpensesTable() {
         exps = exps.filter(e => e.storeId === STATE.currentStoreId);
     }
     if (STATE.currentMonth) {
-        exps = exps.filter(e => e.date && e.date.startsWith(STATE.currentMonth));
+        exps = exps.filter(e => {
+            if (e.date && e.date.startsWith(STATE.currentMonth)) return true;
+            if (e.recurrence === 'monthly') {
+                const startM = (e.startDate || e.date || '').substring(0, 7);
+                return startM && startM <= STATE.currentMonth;
+            }
+            return false;
+        });
     }
     if (catFilter !== 'ALL') {
         exps = exps.filter(e => e.category === catFilter);
@@ -1811,9 +1833,12 @@ function renderExpensesTable() {
             ? '<span class="ml-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300" title="Wartet auf Synchronisierung mit dem Server">⏳ Ausstehend</span>' 
             : '<span class="ml-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300" title="Erfolgreich in zentraler Datenbank gespeichert">✓ Gespeichert</span>';
 
+const displayDate = (e.recurrence === 'monthly' && STATE.currentMonth)
+            ? `${STATE.currentMonth}-${(e.date || '2026-01-01').substring(8, 10) || '01'}`
+            : e.date;
         const tr = `
             <tr class="hover:bg-slate-50/80 transition ${e._pendingSync ? 'bg-amber-50/40' : ''}">
-                <td class="py-3 px-4 font-semibold text-slate-900">${formatDateDE(e.date)} ${pendingBadge}</td>
+                <td class="py-3 px-4 font-semibold text-slate-900">${formatDateDE(displayDate)} ${pendingBadge}</td>
                 <td class="py-3 px-4">
                     <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${colorCfg.badge}">
                         <span class="w-1.5 h-1.5 rounded-full ${colorCfg.bg}"></span>
@@ -3955,7 +3980,15 @@ function renderMonthlyReport() {
 
     STATE.stores.forEach(store => {
         const storeRevs = STATE.revenues.filter(r => r.storeId === store.id && r.date.startsWith(STATE.currentMonth));
-        const storeExps = STATE.expenses.filter(e => e.storeId === store.id && e.date.startsWith(STATE.currentMonth));
+        const storeExps = STATE.expenses.filter(e => {
+            if (e.storeId !== store.id) return false;
+            if (e.date && e.date.startsWith(STATE.currentMonth)) return true;
+            if (e.recurrence === 'monthly') {
+                const startM = (e.startDate || e.date || '').substring(0, 7);
+                return startM && startM <= STATE.currentMonth;
+            }
+            return false;
+        });
         const stTotals = calculateTotals(storeRevs, storeExps);
 
         const card = `
@@ -4345,6 +4378,15 @@ function openModal(modalId, isEdit = false) {
             document.getElementById('expEditId').value = '';
             document.getElementById('expAmount').value = '';
             document.getElementById('expTitle').value = '';
+            const expDateInput = document.getElementById('expDate');
+            if (expDateInput && STATE.currentMonth) {
+                const todayStr = getTodayString();
+                if (todayStr.startsWith(STATE.currentMonth)) {
+                    expDateInput.value = todayStr;
+                } else {
+                    expDateInput.value = `${STATE.currentMonth}-01`;
+                }
+            }
         } else if (modalId === 'addStoreModal') {
             document.getElementById('storeModalTitle').textContent = 'Neue Filiale anlegen';
             document.getElementById('storeEditId').value = '';

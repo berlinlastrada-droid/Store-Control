@@ -4,7 +4,7 @@
  * Caches application shell for offline capability and instant loading on smartphones & PC.
  */
 
-const CACHE_NAME = 'storecontrol-pwa-v2.2.0';
+const CACHE_NAME = 'storecontrol-pwa-v2.3.0';
 const STATIC_ASSETS = [
     '/',
     '/index.html',
